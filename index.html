@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>학사일정</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html, body { width:100%; height:100%; overflow:hidden; }
+  body {
+    background:#000; color:#fff;
+    font-family:'Pretendard','Noto Sans KR','Malgun Gothic',sans-serif;
+    display:grid;
+    grid-template-columns:33% 67%;
+    -webkit-user-select:none; user-select:none;
+  }
+
+  /* --- 1열 --- */
+  #right {
+    grid-column:1;
+    padding:20px 30px 16px 30px; display:flex; flex-direction:column; overflow:hidden;
+  }
+
+  #clock { display:flex; align-items:flex-start; justify-content:center; line-height:1; }
+  #hm  { font-size:118px; font-weight:700; letter-spacing:-3px; }
+  #sec { font-size:44px; font-weight:700; margin-left:10px; margin-top:8px; }
+  #dateLine { text-align:center; font-size:34px; color:#a0a0a0; margin-top:4px; font-weight:400; }
+
+  #class {
+    margin-top:10px; padding:5px 12px; border-radius:8px;
+    border:1px solid #2a2a2a;
+    display:flex; align-items:center; justify-content:center; gap:10px;
+    font-size:16px; color:#8b949e;
+    transition:background .4s, border-color .4s;
+  }
+  #class.now  { border-color:#3fb950; background:#3fb95015; }
+  #class.soon { border-color:#e8912d; background:#e8912d20;
+                animation:blink 1.2s ease-in-out infinite; }
+  @keyframes blink { 50% { background:#e8912d50; } }
+  #classMain { font-size:20px; font-weight:700; color:#fff; }
+  #class.now  #classMain { color:#3fb950; }
+  #class.soon #classMain { color:#ffb45c; }
+  #classTime { font-size:15px; color:#6e7681; }
+
+  #wx { display:flex; align-items:center; justify-content:center; margin-top:16px; }
+  #wxTemp { font-size:92px; font-weight:700; line-height:1; display:flex; align-items:flex-start; }
+  #wxTemp small { font-size:32px; margin-top:8px; margin-left:4px; }
+  #wxIcon { margin:0 24px; color:#f2a33c; display:flex; align-items:center; }
+  #wxSun { font-size:25px; color:#dcdcdc; line-height:1.7; }
+  #wxSun div { display:flex; align-items:center; gap:10px; }
+
+  #wxSub {
+    display:flex; align-items:center; justify-content:center; gap:34px; margin-top:5px;
+    font-size:25px; color:#dcdcdc;
+  }
+  #wxName { font-size:27px; color:#fff; }
+
+  #meal {
+    margin-top:auto; border-top:1px solid #2a2a2a; padding-top:12px;
+    max-height:190px; overflow:hidden;
+  }
+  #mealLabel { font-size:19px; color:#e8912d; font-weight:600; margin-bottom:7px; }
+  #dishes {
+    font-size:17px; line-height:1.5; color:#e0e0e0;
+    display:flex; flex-wrap:wrap; gap:2px 18px;
+  }
+  #dishes span { display:block; }
+  #kcal { font-size:14px; color:#777; margin-top:5px; }
+
+  /* --- 2열: 달력 --- */
+  #cal {
+    grid-column:2;
+    padding:20px 60px 16px 60px; display:flex; flex-direction:column; overflow:hidden;
+  }
+  #calHead { display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; }
+  #monthTitle { font-size:42px; font-weight:600; letter-spacing:-1px; }
+  .nav {
+    width:64px; height:64px; display:flex; align-items:center; justify-content:center;
+    font-size:38px; color:#8a8a8a; cursor:pointer; border-radius:50%;
+  }
+  .nav:active { background:#ffffff20; color:#fff; }
+
+  table { width:100%; flex:1; border-collapse:collapse; table-layout:fixed; }
+  th { font-size:22px; color:#c9c9c9; font-weight:500; padding-bottom:6px; }
+  th.sun, td.sun .dnum { color:#e8912d; }
+  th.sat, td.sat .dnum { color:#e8912d; }
+  td { text-align:center; vertical-align:top; padding-top:5px; overflow:hidden; }
+  .dnum {
+    font-size:30px; font-weight:500; line-height:1.1;
+    display:inline-flex; align-items:center; justify-content:center;
+    width:58px; height:42px;
+  }
+  td.today .dnum { border:2px solid #e8912d; border-radius:8px; }
+  td.other .dnum { color:#4a4a4a !important; }
+  .evline {
+    font-size:14px; color:#7ee787; line-height:1.3;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; padding:0 6px;
+  }
+  .evline.main { color:#ffa657; }
+
+  #err {
+    position:fixed; bottom:6px; left:8px;
+    font-size:12px; color:#f85149;
+  }
+</style>
+</head>
+<body>
+
+<div id="right">
+  <div id="clock"><span id="hm">--:--</span><span id="sec">--</span></div>
+  <div id="dateLine">----------</div>
+
+  <div id="class">
+    <span id="classState">수업</span>
+    <span id="classMain">—</span>
+    <span id="classTime"></span>
+  </div>
+
+  <div id="wx">
+    <div id="wxTemp">--<small>°C</small></div>
+    <div id="wxIcon"></div>
+    <div id="wxSun">
+      <div><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#dcdcdc" stroke-width="1.8"><path d="M3 18h18M12 3v6M8 9l4-4 4 4M5 14l1 1M19 14l-1 1"/></svg><span id="sunrise">--:--</span></div>
+      <div><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#dcdcdc" stroke-width="1.8"><path d="M3 18h18M12 9V3M8 5l4 4 4-4M5 14l1 1M19 14l-1 1"/></svg><span id="sunset">--:--</span></div>
+    </div>
+  </div>
+
+  <div id="wxSub">
+    <div id="wxName">--</div>
+    <div><span id="tmin">--</span>°C | <span id="tmax">--</span>°C</div>
+    <div style="display:flex;align-items:center;gap:8px;">
+      <svg width="24" height="20" viewBox="0 0 24 24" fill="none" stroke="#dcdcdc" stroke-width="1.8">
+        <path d="M3 8h11a3 3 0 1 0-3-3M3 13h15a3 3 0 1 1-3 3M3 18h9"/></svg>
+      <span id="wind">--</span>km/h
+    </div>
+  </div>
+
+  <div id="meal">
+    <div id="mealLabel">급식</div>
+    <div id="dishes">불러오는 중…</div>
+    <div id="kcal"></div>
+  </div>
+</div>
+
+<div id="cal">
+  <div id="calHead">
+    <div class="nav" onclick="moveMonth(-1)">‹</div>
+    <div id="monthTitle">—</div>
+    <div class="nav" onclick="moveMonth(1)">›</div>
+  </div>
+  <table>
+    <thead><tr>
+      <th class="sun">일</th><th>월</th><th>화</th><th>수</th><th>목</th><th>금</th><th class="sat">토</th>
+    </tr></thead>
+    <tbody id="calBody"></tbody>
+  </table>
+</div>
+
+<div id="err"></div>
+
+<script>
+/* ===== Apps Script 주소 ===== */
+var API = 'https://script.google.com/macros/s/AKfycbxXYMueYS6ex0eoF3Xp1-WkDOvdSW6j9sYJeEbQ8gAN74ZEScEc-Fp8lm69J2OwtEzg0A/exec';
+
+var DATA = null, viewY = null, viewM = null, lastNav = 0, cbSeq = 0;
+
+/* ===== 데이터 불러오기 (JSONP) ===== */
+function load() {
+  var name = 'cb' + (++cbSeq);
+  var s = document.createElement('script');
+  var done = false;
+
+  window[name] = function(d) {
+    done = true;
+    document.getElementById('err').textContent = '';
+    onData(d);
+    delete window[name];
+    if (s.parentNode) s.parentNode.removeChild(s);
+  };
+
+  s.src = API + '?callback=' + name + '&t=' + Date.now();
+  s.onerror = function() {
+    document.getElementById('err').textContent = '데이터 연결 실패';
+    delete window[name];
+  };
+  document.head.appendChild(s);
+
+  setTimeout(function() {
+    if (!done) document.getElementById('err').textContent = '응답 지연';
+  }, 15000);
+}
+
+function onData(d) {
+  DATA = d;
+  var t = d.today.split('-');
+  if (viewY === null || Date.now() - lastNav > 120000) {
+    viewY = +t[0]; viewM = +t[1];
+  }
+  renderMeal(d.meal);
+  renderWeather(d.weather);
+  drawCalendar();
+  renderClass(new Date());
+}
+
+/* ===== 시계 + 수업 ===== */
+function tick() {
+  var n = new Date();
+  document.getElementById('hm').textContent = p(n.getHours()) + ':' + p(n.getMinutes());
+  document.getElementById('sec').textContent = p(n.getSeconds());
+  document.getElementById('dateLine').textContent =
+    n.getFullYear() + '-' + p(n.getMonth() + 1) + '-' + p(n.getDate());
+  renderClass(n);
+}
+function p(n) { return (n < 10 ? '0' : '') + n; }
+
+function toMin(hhmm) {
+  var a = hhmm.split(':');
+  return (+a[0]) * 60 + (+a[1]);
+}
+
+function renderClass(n) {
+  if (!DATA) return;
+
+  var box   = document.getElementById('class');
+  var state = document.getElementById('classState');
+  var main  = document.getElementById('classMain');
+  var time  = document.getElementById('classTime');
+  box.className = '';
+
+  var rows = DATA.timetable[n.getDay()];
+  if (!rows) {
+    state.textContent = '수업'; main.textContent = '없음'; time.textContent = '';
+    return;
+  }
+
+  var nowMin = n.getHours() * 60 + n.getMinutes();
+  var list = [];
+  for (var i = 0; i < DATA.periods.length; i++) {
+    if (rows[i] === null || rows[i] === undefined) continue;
+    list.push({
+      no: DATA.periods[i].no, cls: rows[i],
+      s: toMin(DATA.periods[i].start), e: toMin(DATA.periods[i].end),
+      stext: DATA.periods[i].start
+    });
+  }
+
+  if (list.length === 0) {
+    state.textContent = '수업'; main.textContent = '없음'; time.textContent = '';
+    return;
+  }
+
+  for (var j = 0; j < list.length; j++) {
+    if (nowMin >= list[j].s && nowMin < list[j].e) {
+      box.className = 'now';
+      state.textContent = '수업 중';
+      main.textContent  = list[j].no + '교시 ' + list[j].cls + '반';
+      time.textContent  = (list[j].e - nowMin) + '분 남음';
+      return;
+    }
+  }
+
+  for (var k = 0; k < list.length; k++) {
+    if (list[k].s > nowMin) {
+      var left = list[k].s - nowMin;
+      if (left <= DATA.alertMin) {
+        box.className = 'soon';
+        state.textContent = left + '분 후';
+      } else {
+        state.textContent = '다음';
+      }
+      main.textContent = list[k].no + '교시 ' + list[k].cls + '반';
+      time.textContent = list[k].stext;
+      return;
+    }
+  }
+
+  state.textContent = '오늘 수업'; main.textContent = '종료'; time.textContent = '';
+}
+
+/* ===== 급식 ===== */
+function renderMeal(m) {
+  document.getElementById('mealLabel').textContent = m.label;
+  document.getElementById('dishes').innerHTML = m.hasMeal
+    ? m.dishes.map(function(x){ return '<span>· ' + x + '</span>'; }).join('')
+    : '<span style="color:#666">급식 없음</span>';
+  document.getElementById('kcal').textContent = m.kcal;
+}
+
+/* ===== 날씨 ===== */
+function renderWeather(w) {
+  if (!w || !w.ok) {
+    document.getElementById('wxName').textContent = w ? w.name : '--';
+    return;
+  }
+  document.getElementById('wxTemp').innerHTML = w.temp + '<small>°C</small>';
+  document.getElementById('wxName').textContent = w.name;
+  document.getElementById('tmin').textContent = w.tmin;
+  document.getElementById('tmax').textContent = w.tmax;
+  document.getElementById('wind').textContent = w.wind;
+  document.getElementById('sunrise').textContent = w.sunrise;
+  document.getElementById('sunset').textContent = w.sunset;
+  document.getElementById('wxIcon').innerHTML = iconFor(w.code);
+}
+
+function iconFor(c) {
+  var S = 'width="84" height="84" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"';
+  if (c === 0 || c === 1)
+    return '<svg ' + S + '><circle cx="12" cy="12" r="4.2"/><path d="M12 2v2.4M12 19.6V22M2 12h2.4M19.6 12H22M4.9 4.9l1.7 1.7M17.4 17.4l1.7 1.7M19.1 4.9l-1.7 1.7M6.6 17.4l-1.7 1.7"/></svg>';
+  if (c === 2 || c === 3)
+    return '<svg ' + S + '><circle cx="8.5" cy="8.5" r="3.2"/><path d="M17 19H8a4 4 0 0 1 0-8 5 5 0 0 1 9.5 1.5A3.3 3.3 0 0 1 17 19z"/></svg>';
+  if (c >= 45 && c <= 48)
+    return '<svg ' + S + '><path d="M3 8h18M3 12h18M3 16h13M3 20h9"/></svg>';
+  if ((c >= 51 && c <= 67) || (c >= 80 && c <= 82))
+    return '<svg ' + S + '><path d="M17 15H8a4 4 0 0 1 0-8 5 5 0 0 1 9.5 1.5A3.3 3.3 0 0 1 17 15z"/><path d="M9 18l-1 3M13 18l-1 3M17 18l-1 3"/></svg>';
+  if ((c >= 71 && c <= 77) || c === 85 || c === 86)
+    return '<svg ' + S + '><path d="M17 14H8a4 4 0 0 1 0-8 5 5 0 0 1 9.5 1.5A3.3 3.3 0 0 1 17 14z"/><path d="M9 18h.01M13 19h.01M17 18h.01"/></svg>';
+  if (c >= 95)
+    return '<svg ' + S + '><path d="M17 13H8a4 4 0 0 1 0-8 5 5 0 0 1 9.5 1.5A3.3 3.3 0 0 1 17 13z"/><path d="M13 15l-3 4h4l-3 4"/></svg>';
+  return '<svg ' + S + '><path d="M17 18H8a4 4 0 0 1 0-8 5 5 0 0 1 9.5 1.5A3.3 3.3 0 0 1 17 18z"/></svg>';
+}
+
+/* ===== 달력 ===== */
+function moveMonth(delta) {
+  lastNav = Date.now();
+  viewM += delta;
+  if (viewM < 1)  { viewM = 12; viewY--; }
+  if (viewM > 12) { viewM = 1;  viewY++; }
+  drawCalendar();
+}
+
+function drawCalendar() {
+  if (!DATA) return;
+  document.getElementById('monthTitle').textContent = viewM + '월 ' + viewY;
+
+  var first = new Date(viewY, viewM - 1, 1).getDay();
+  var last  = new Date(viewY, viewM, 0).getDate();
+  var prevLast = new Date(viewY, viewM - 1, 0).getDate();
+
+  var html = '', day = 1, nextDay = 1;
+
+  for (var w = 0; w < 6; w++) {
+    html += '<tr>';
+    for (var c = 0; c < 7; c++) {
+      var cls = (c === 0) ? 'sun' : (c === 6 ? 'sat' : '');
+      if (w === 0 && c < first) {
+        html += '<td class="' + cls + ' other"><span class="dnum">' + (prevLast - first + c + 1) + '</span></td>';
+      } else if (day > last) {
+        html += '<td class="' + cls + ' other"><span class="dnum">' + (nextDay++) + '</span></td>';
+      } else {
+        var ds = viewY + '-' + p(viewM) + '-' + p(day);
+        if (ds === DATA.today) cls += ' today';
+        var cell = '<span class="dnum">' + day + '</span>';
+        var items = DATA.eventMap[ds];
+        if (items) {
+          items.slice(0, 3).forEach(function(i) {
+            cell += '<div class="evline' + (i.type === '주요행사' ? ' main' : '') + '">' + i.text + '</div>';
+          });
+        }
+        html += '<td class="' + cls + '">' + cell + '</td>';
+        day++;
+      }
+    }
+    html += '</tr>';
+  }
+  document.getElementById('calBody').innerHTML = html;
+}
+
+tick();
+setInterval(tick, 1000);
+load();
+setInterval(load, 60000);
+</script>
+</body>
+</html>
