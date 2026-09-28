@@ -69,14 +69,27 @@
   #kcal { font-size:14px; color:#777; margin-top:5px; }
 
 
-  /* --- 하단 자막 (큐 알림, 2026-09-28): 큐가 보낸 줄이 있을 때만 46px 띠가 생기고, 없으면 원래 화면 그대로 --- */
-  body.hasTicker { grid-template-rows:1fr 46px; }
-  body.hasTicker #right, body.hasTicker #cal { grid-row:1; }
+  /* --- 하단 자막 (큐 알림, 2026-09-28): 큐가 보낸 줄이 있을 때만 40px 띠가 생기고 위 내용을 그만큼 줄인다, 없으면 원래 화면 그대로 --- */
+  body.hasTicker { grid-template-rows:minmax(0,1fr) 40px; }
+  body.hasTicker #right, body.hasTicker #cal { grid-row:1; min-height:0; }
   #ticker { display:none; grid-column:1 / span 2; grid-row:2; align-items:center; background:#0d1117; border-top:1px solid #21262d; overflow:hidden; }
   body.hasTicker #ticker { display:flex; }
-  #ticker .tag { flex:none; padding:0 22px; font-size:18px; font-weight:700; color:#f85149; letter-spacing:2px; border-right:1px solid #21262d; height:100%; display:flex; align-items:center; }
+  #ticker .tag { flex:none; padding:0 20px; font-size:17px; font-weight:700; color:#f85149; letter-spacing:2px; border-right:1px solid #21262d; height:100%; display:flex; align-items:center; }
+  /* 자막이 있을 때는 위 내용을 그만큼 줄여 아래가 겹치지 않게 한다 (2026-09-28 캡틴: 밑이 겹침) */
+  body.hasTicker #hm { font-size:104px; }
+  body.hasTicker #sec { font-size:40px; }
+  body.hasTicker #wx { margin-top:8px; }
+  body.hasTicker #wxTemp { font-size:50px; }
+  body.hasTicker #meal { max-height:150px; padding-top:8px; }
+  body.hasTicker #cal { padding-top:12px; padding-bottom:8px; }
+  body.hasTicker #calHead { margin-bottom:4px; }
+  body.hasTicker #monthTitle { font-size:36px; }
+  body.hasTicker th { padding-bottom:2px; font-size:20px; }
+  body.hasTicker td { padding-top:2px; }
+  body.hasTicker .dnum { height:34px; font-size:27px; }
+  body.hasTicker .evline { font-size:13px; line-height:1.25; }
   #ticker .run { flex:1; overflow:hidden; white-space:nowrap; }
-  #ticker .run span { display:inline-block; padding-left:100%; font-size:20px; color:#e6edf3; animation:roll var(--roll, 30s) linear infinite; }
+  #ticker .run span { display:inline-block; padding-left:100%; font-size:19px; color:#e6edf3; animation:roll var(--roll, 30s) linear infinite; }
   #ticker .run b { color:#ffa657; font-weight:600; }
   @keyframes roll { from { transform:translateX(0); } to { transform:translateX(-100%); } }
   /* --- 2열: 달력 --- */
