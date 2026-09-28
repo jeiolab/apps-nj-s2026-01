@@ -14,8 +14,8 @@
     background:#0b0d10; color:#f2f2f2;
     font-family:'Pretendard','Noto Sans KR','Malgun Gothic',sans-serif;
     display:grid;
-    grid-template-rows:minmax(0,1fr) 22px 20px;
-    gap:5px;
+    grid-template-rows:minmax(0,1fr) 18px 16px;
+    gap:4px;
     padding:8px;
     overflow:hidden;
     -webkit-user-select:none; user-select:none;
@@ -24,12 +24,10 @@
 
   /* ---- 1행: 왼쪽 패널 + 달력 ---- */
   #main { display:grid; grid-template-columns:192px minmax(0,1fr); gap:8px; min-height:0; min-width:0; }
-  #left { min-width:0; min-height:0; display:flex; flex-direction:column; align-items:center; justify-content:flex-start; overflow:hidden; text-align:center; padding-top:2px; }
+  #left { min-width:0; min-height:0; display:flex; flex-direction:column; align-items:center; justify-content:space-between; overflow:hidden; text-align:center; padding-top:2px; }
   #left > * { width:100%; }
   #g1 { display:flex; flex-direction:column; align-items:center; gap:1px; }           /* 시계 + 날짜: 아주 약한 간격 */
-  #wx { margin-top:8px; }                                                                /* 날짜 → 날씨: 조금 띄움 */
-  #class { margin-top:auto !important; }                                                 /* 날씨 → 수업: 남는 높이만큼 분명히 끊고, 카드 바닥이 달력 바닥과 맞는다(최소 12px는 아래 min 규칙) */
-  #g2 { display:flex; flex-direction:column; align-items:center; padding-bottom:8px; }   /* 날씨 묶음 아래 최소 간격 */
+  #g2 { display:flex; flex-direction:column; align-items:center; }                    /* 날씨 묶음 — 위·아래 간격은 space-between 이 똑같이 나눈다 */
 
   /* 시계·날짜: 묶음 전체를 가운데, 초는 작게. 분·초가 바뀌어도 폭이 같도록 숫자 폭 고정 */
   #clock { display:flex; align-items:baseline; justify-content:center; line-height:1; gap:4px; }
@@ -54,7 +52,7 @@
 
   /* 수업: 날씨 아래 최소 간격. 상태 / 교시·반 / 남은 시간 위계 */
   #class {
-    padding:5px 8px 6px; border-radius:6px; width:100%;
+    padding:4px 8px 5px; border-radius:6px; width:100%;
     background:#161b22; border:1px solid #21262d;
     display:flex; flex-direction:column; align-items:center; gap:1px; min-width:0;
     transition:background .4s, border-color .4s;
@@ -84,45 +82,45 @@
   .cell.today { background:#e8912d1f; border-color:#e8912d66; }
   .cell.other .dnum { color:#4a4f56 !important; }
   .cell.other .evline { color:#5a6068; }
-  .dnum { font-size:11px; font-weight:600; line-height:12px; flex:none; }
-  .evline { font-size:9px; color:#7ee787; line-height:10px; width:100%; text-align:center; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; flex:none; }
+  .dnum { font-size:13px; font-weight:600; line-height:14px; flex:none; }
+  .evline { font-size:7px; color:#7ee787; line-height:9px; width:100%; text-align:center; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; flex:none; }
   .evline.main { color:#ffa657; }
   .evline .more { color:#8b949e; }
   .evline2 { display:none; }
   /* 창이 넉넉할 때: 320px 이상이면 글자를 조금 키우고, 400px 이상이면 둘째 일정 줄도 보인다(칸 높이가 세 줄을 담을 때만) */
-  body.tall .dnum { font-size:13px; line-height:15px; }
-  body.tall .evline { font-size:10px; line-height:12px; }
+  body.tall .dnum { font-size:15px; line-height:17px; }
+  body.tall .evline { font-size:8px; line-height:10px; }
   body.tall2 .evline2 { display:block; }
   body.tall #grid { grid-template-rows:14px repeat(6, minmax(0,1fr)); }
 
-  /* ---- 2행: 급식 — 얇은 보조 바(22px). 메뉴 본문 9px → 8px, 라벨 12px → 11px ---- */
-  #mealRow { min-width:0; height:22px; display:flex; align-items:center; gap:8px; padding:0 8px; border-radius:5px; background:#11151a; border:1px solid #1c2128; cursor:pointer; }
+  /* ---- 2행: 급식 — 얇은 정보 바(18px). 메뉴 본문 8px → 6px, 라벨 11px → 9px ---- */
+  #mealRow { min-width:0; height:18px; display:flex; align-items:center; gap:6px; padding:0 7px; border-radius:4px; background:#11151a; border:1px solid #1c2128; cursor:pointer; }
   #mealRow:focus-visible { outline:none; box-shadow:0 0 0 2px #58a6ff66; }
-  #mealLabel { flex:none; font-size:11px; font-weight:600; color:#e8912d; line-height:1; }
-  #dishes { flex:1; min-width:0; font-size:8px; line-height:1; color:#e6edf3; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  #mealLabel { flex:none; font-size:9px; font-weight:600; color:#e8912d; line-height:1; }
+  #dishes { flex:1; min-width:0; font-size:6px; line-height:1; color:#e6edf3; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   #dishes.muted { color:#6e7681; }
-  #kcal { flex:none; font-size:8px; line-height:1; color:#6e7681; white-space:nowrap; }
+  #kcal { flex:none; font-size:6px; line-height:1; color:#6e7681; white-space:nowrap; }
 
   /* ---- 3행: [큐알림 라벨][흐르는 본문][다음 일정] ---- */
-  #ticker { min-width:0; height:20px; display:grid; grid-template-columns:auto minmax(0,1fr) fit-content(40%); align-items:center; gap:8px; padding:0 8px; border-radius:5px; background:#11151a; border:1px solid #1c2128; }
-  #tkTag { flex:none; font-size:10px; font-weight:700; color:#f85149; letter-spacing:.5px; white-space:nowrap; line-height:1; }
+  #ticker { min-width:0; height:16px; display:grid; grid-template-columns:auto minmax(0,1fr) fit-content(40%); align-items:center; gap:6px; padding:0 7px; border-radius:4px; background:#11151a; border:1px solid #1c2128; }
+  #tkTag { flex:none; font-size:8px; font-weight:700; color:#f85149; letter-spacing:.5px; white-space:nowrap; line-height:1; }
   #tkRun { min-width:0; height:100%; overflow:hidden; position:relative; cursor:pointer; outline:none; }
   #tkRun:focus-visible { box-shadow:0 0 0 2px #58a6ff66; border-radius:4px; }
-  #tkTrack { position:absolute; top:0; left:0; height:100%; display:flex; align-items:center; white-space:nowrap; font-size:11px; color:#e6edf3; will-change:transform; }
+  #tkTrack { position:absolute; top:0; left:0; height:100%; display:flex; align-items:center; white-space:nowrap; font-size:9px; color:#e6edf3; will-change:transform; }
   #tkTrack b { color:#ffa657; font-weight:600; }
-  #tkTrack .sep { color:#6e7681; margin:0 10px; }
+  #tkTrack .sep { color:#6e7681; margin:0 8px; }
   #tkTrack.roll { animation:roll var(--dur, 20s) linear infinite; }
   @keyframes roll { from { transform:translateX(var(--from, 0px)); } to { transform:translateX(var(--to, -100%)); } }
   #tkRun:hover #tkTrack, #tkRun:focus-visible #tkTrack, #ticker.paused #tkTrack { animation-play-state:paused; }
-  #tkTrack.still { position:static; overflow:hidden; text-overflow:ellipsis; display:block; line-height:18px; }   /* 동작 줄이기 또는 알림 없음: 멈춘 한 줄 */
+  #tkTrack.still { position:static; overflow:hidden; text-overflow:ellipsis; display:block; line-height:14px; }   /* 동작 줄이기 또는 알림 없음: 멈춘 한 줄 */
   #tkTrack.muted { color:#6e7681; }
   @media (prefers-reduced-motion: reduce) { #tkTrack.roll { animation:none; } }
   #tkRight { min-width:0; width:100%; display:flex; align-items:center; gap:5px; cursor:pointer; overflow:hidden; }
   #tkRight.hide { display:none; }
   #tkRight:focus-visible { outline:none; box-shadow:0 0 0 2px #58a6ff66; border-radius:4px; }
-  #nxLabel { flex:none; font-size:10px; color:#8b949e; }
-  #nxTime { flex:none; font-size:11px; font-weight:700; color:#ffa657; }
-  #nxTitle { min-width:0; font-size:11px; color:#e6edf3; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  #nxLabel { flex:none; font-size:8px; color:#8b949e; }
+  #nxTime { flex:none; font-size:9px; font-weight:700; color:#ffa657; }
+  #nxTitle { min-width:0; font-size:9px; color:#e6edf3; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 
   /* ---- 상세 보기 (한 개, 창 안에서만) ---- */
   #detail { position:fixed; left:8px; right:8px; bottom:8px; z-index:900; display:none; max-height:calc(100% - 16px); overflow:auto; background:#161b22; border:1px solid #30363d; border-radius:8px; padding:8px 10px; box-shadow:0 8px 24px #000a; }
