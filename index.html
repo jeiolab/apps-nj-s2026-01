@@ -5,14 +5,16 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>학사일정</title>
 <style>
-  /* 2026-09-28 큐: 세 행 배치(본문 / 급식 / 알림). 기준 640×264, 모든 치수는 border-box. 기존 시계·수업·알림·급식·날씨·달력·JSONP 갱신 로직은 그대로다. */
+  /* 2026-09-28 큐 v3: 세 행(본문 / 급식 / 큐알림 자막). 기준 640×264, 모든 치수 border-box.
+     왼쪽 패널은 시계 → 날짜 → 날씨 → 수업 순서로 한 중심선에 가운데 정렬. 달력은 날짜 아래 일정 제목 한 줄을 항상 보인다.
+     기존 시계·수업·전체화면 알림·급식·날씨·달력·JSONP 1분 갱신 로직은 그대로다. */
   * { margin:0; padding:0; box-sizing:border-box; }
   html, body { width:100%; height:100%; }
   body {
     background:#0b0d10; color:#f2f2f2;
     font-family:'Pretendard','Noto Sans KR','Malgun Gothic',sans-serif;
     display:grid;
-    grid-template-rows:minmax(0,1fr) 30px 24px;
+    grid-template-rows:minmax(0,1fr) 28px 24px;
     gap:6px;
     padding:8px;
     overflow:hidden;
@@ -20,89 +22,100 @@
     font-variant-numeric:tabular-nums;
   }
 
-  /* ---- 1행: 왼쪽 상태 패널 + 달력 ---- */
-  #main { display:grid; grid-template-columns:196px minmax(0,1fr); gap:8px; min-height:0; min-width:0; }
-  #left { min-width:0; min-height:0; display:flex; flex-direction:column; gap:4px; overflow:hidden; }
+  /* ---- 1행: 왼쪽 패널 + 달력 ---- */
+  #main { display:grid; grid-template-columns:192px minmax(0,1fr); gap:8px; min-height:0; min-width:0; }
+  #left { min-width:0; min-height:0; display:flex; flex-direction:column; align-items:center; justify-content:flex-start; overflow:hidden; text-align:center; }
+  #left > * { width:100%; }
 
-  #clock { display:flex; align-items:baseline; justify-content:flex-start; line-height:1; gap:4px; }
-  #hm  { font-size:44px; font-weight:700; letter-spacing:-1px; }
-  #sec { font-size:14px; font-weight:500; color:#8b949e; min-width:2ch; }
-  #dateLine { font-size:13px; color:#a0a6ad; margin-top:-2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  /* 시계·날짜: 묶음 전체를 가운데, 초는 작게. 분·초가 바뀌어도 폭이 같도록 숫자 폭 고정 */
+  #clock { display:flex; align-items:baseline; justify-content:center; line-height:1; gap:4px; }
+  #hm  { font-size:42px; font-weight:700; letter-spacing:-1px; }
+  #sec { font-size:13px; font-weight:500; color:#8b949e; width:2ch; text-align:left; }
+  #dateLine { font-size:13px; color:#a0a6ad; line-height:1.3; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 
+  /* 날씨: 날짜 바로 아래(상단 여백 0). 아이콘·온도·지역 한 줄, 그 아래 최저·최고 한 줄. 눌러 펼치면 일출·일몰·풍속 */
+  #wx { position:relative; min-width:0; }
+  #wx summary { list-style:none; cursor:pointer; display:flex; flex-direction:column; align-items:center; min-width:0; outline:none; border-radius:6px; padding:0 4px; }
+  #wx summary::-webkit-details-marker { display:none; }
+  #wx summary:focus-visible { box-shadow:0 0 0 2px #58a6ff66; }
+  #wxLine { display:flex; align-items:center; justify-content:center; gap:6px; line-height:1; min-width:0; }
+  #wxIcon { color:#f2a33c; display:flex; align-items:center; flex:none; }
+  #wxIcon svg { width:22px; height:22px; }
+  #wxTemp { font-size:20px; font-weight:700; line-height:1; flex:none; }
+  #wxTemp small { font-size:11px; font-weight:500; margin-left:1px; }
+  #wxName { font-size:13px; color:#fff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }
+  #wxRange { font-size:11px; color:#a0a6ad; line-height:1.3; white-space:nowrap; }
+  #wxMore { font-size:11px; color:#8b949e; padding:3px 6px 1px; display:flex; gap:10px; flex-wrap:wrap; justify-content:center; }
+  #wxMore span { display:inline-flex; align-items:center; gap:3px; }
+
+  /* 수업: 날씨 아래 최소 간격. 상태 / 교시·반 / 남은 시간 위계 */
   #class {
-    margin-top:4px; padding:5px 8px; border-radius:6px;
+    margin-top:6px; padding:4px 8px; border-radius:6px; width:100%;
     background:#161b22; border:1px solid #21262d;
-    display:flex; flex-direction:column; gap:1px; min-width:0;
+    display:flex; flex-direction:column; align-items:center; gap:0; min-width:0;
     transition:background .4s, border-color .4s;
   }
   #class.now  { border-color:#2ea04366; background:#1b2a1f; }
   #class.soon { border-color:#e8912d88; background:#2a2115; animation:blink 1.2s ease-in-out infinite; }
   @keyframes blink { 50% { background:#3a2b12; } }
-  #classState { font-size:11px; color:#8b949e; letter-spacing:.5px; }
+  #classState { font-size:11px; color:#8b949e; letter-spacing:.5px; line-height:1.3; }
   #class.now  #classState { color:#3fb950; }
   #class.soon #classState { color:#ffb45c; }
-  #classMain { font-size:20px; font-weight:700; color:#fff; line-height:1.15; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  #classTime { font-size:12px; color:#8b949e; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  #classMain { font-size:19px; font-weight:700; color:#fff; line-height:1.15; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%; }
+  #classTime { font-size:12px; color:#8b949e; line-height:1.3; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%; }
 
-  /* 날씨: 기본은 아이콘·온도·지역·최저/최고, 나머지는 펼쳐 보기 */
-  #wx { margin-top:auto; position:relative; min-width:0; }
-  #wx summary { list-style:none; cursor:pointer; display:flex; align-items:center; gap:8px; min-width:0; outline:none; border-radius:6px; padding:2px 4px; }
-  #wx summary::-webkit-details-marker { display:none; }
-  #wx summary:focus-visible { box-shadow:0 0 0 2px #58a6ff66; }
-  #wxIcon { color:#f2a33c; display:flex; align-items:center; flex:none; }
-  #wxIcon svg { width:28px; height:28px; }
-  #wxTemp { font-size:22px; font-weight:700; line-height:1; flex:none; }
-  #wxTemp small { font-size:11px; font-weight:500; margin-left:1px; }
-  #wxMeta { min-width:0; display:flex; flex-direction:column; line-height:1.2; }
-  #wxName { font-size:12px; color:#fff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  #wxRange { font-size:11px; color:#a0a6ad; white-space:nowrap; }
-  #wxMore { font-size:11px; color:#8b949e; padding:3px 6px 1px; display:flex; gap:10px; flex-wrap:wrap; }
-  #wxMore span { display:inline-flex; align-items:center; gap:3px; }
-
+  /* 달력: 머리(18px) + 요일(12px) + 6주. 칸마다 날짜 위, 일정 제목 아래(항상 한 줄) */
   #cal { min-width:0; min-height:0; display:flex; flex-direction:column; }
-  #calHead { display:flex; align-items:center; justify-content:center; gap:6px; height:20px; flex:none; }
-  #monthTitle { font-size:14px; font-weight:600; letter-spacing:-.2px; min-width:96px; text-align:center; }
-  .nav { width:20px; height:20px; display:flex; align-items:center; justify-content:center; font-size:16px; color:#8b949e; cursor:pointer; border-radius:4px; border:0; background:transparent; }
+  #calHead { display:flex; align-items:center; justify-content:center; gap:6px; height:18px; flex:none; }
+  #monthTitle { font-size:13px; font-weight:600; letter-spacing:-.2px; min-width:90px; text-align:center; }
+  .nav { width:18px; height:18px; display:flex; align-items:center; justify-content:center; font-size:15px; color:#8b949e; cursor:pointer; border-radius:4px; border:0; background:transparent; }
   .nav:hover, .nav:focus-visible { background:#ffffff14; color:#fff; outline:none; }
-  #grid { flex:1; min-height:0; display:grid; grid-template-columns:repeat(7, minmax(0,1fr)); grid-template-rows:14px repeat(6, minmax(0,1fr)); gap:1px 2px; }
-  .dow { font-size:10px; color:#8b949e; text-align:center; line-height:14px; }
+  #grid { flex:1; min-height:0; display:grid; grid-template-columns:repeat(7, minmax(0,1fr)); grid-template-rows:12px repeat(6, minmax(0,1fr)); gap:0 2px; margin-top:2px; }
+  .dow { font-size:10px; color:#8b949e; text-align:center; line-height:12px; }
   .dow.sun, .cell.sun .dnum { color:#e8912d; }
   .dow.sat, .cell.sat .dnum { color:#e8912d; }
-  .cell { min-width:0; min-height:0; border-radius:4px; padding:1px 3px 0; display:flex; flex-direction:column; align-items:center; overflow:hidden; cursor:default; border:1px solid transparent; }
+  .cell { min-width:0; min-height:0; border-radius:3px; padding:0 2px; display:flex; flex-direction:column; align-items:center; justify-content:flex-start; overflow:hidden; cursor:default; border:1px solid transparent; }
   .cell.has { cursor:pointer; }
   .cell.has:hover, .cell:focus-visible { background:#ffffff0d; outline:none; }
   .cell.today { background:#e8912d1f; border-color:#e8912d66; }
   .cell.other .dnum { color:#4a4f56 !important; }
-  .dnum { font-size:12px; font-weight:500; line-height:1.1; }
-  .dots { display:flex; gap:2px; height:5px; margin-top:1px; }
-  .dot { width:4px; height:4px; border-radius:50%; background:#7ee787; }
-  .dot.main { background:#ffa657; }
-  .evline { display:none; font-size:9px; color:#7ee787; line-height:1.2; width:100%; text-align:center; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .cell.other .evline { color:#5a6068; }
+  .dnum { font-size:11px; font-weight:600; line-height:12px; flex:none; }
+  .evline { font-size:9px; color:#7ee787; line-height:10px; width:100%; text-align:center; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; flex:none; }
   .evline.main { color:#ffa657; }
-  /* 창이 넉넉할 때(높이 320px 이상)만 행사 제목 한 줄을 더 보여 준다 */
-  body.tall .evline { display:block; }
-  body.tall .dots { display:none; }
-  body.tall .dnum { font-size:13px; }
+  .evline .more { color:#8b949e; }
+  .evline2 { display:none; }
+  /* 창이 넉넉할 때: 320px 이상이면 글자를 조금 키우고, 400px 이상이면 둘째 일정 줄도 보인다(칸 높이가 세 줄을 담을 때만) */
+  body.tall .dnum { font-size:13px; line-height:15px; }
+  body.tall .evline { font-size:10px; line-height:12px; }
+  body.tall2 .evline2 { display:block; }
+  body.tall #grid { grid-template-rows:14px repeat(6, minmax(0,1fr)); }
 
-  /* ---- 2행: 급식 ---- */
-  #mealRow { min-width:0; height:30px; display:flex; align-items:center; gap:8px; padding:0 8px; border-radius:6px; background:#11151a; border:1px solid #1c2128; cursor:pointer; }
+  /* ---- 2행: 급식 (메뉴 본문 13px → 9px, 라벨은 그대로 12px) ---- */
+  #mealRow { min-width:0; height:28px; display:flex; align-items:center; gap:8px; padding:0 8px; border-radius:6px; background:#11151a; border:1px solid #1c2128; cursor:pointer; }
   #mealRow:focus-visible { outline:none; box-shadow:0 0 0 2px #58a6ff66; }
-  #mealLabel { flex:none; font-size:12px; font-weight:600; color:#e8912d; }
-  #dishes { flex:1; min-width:0; font-size:13px; color:#e6edf3; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  #mealLabel { flex:none; font-size:12px; font-weight:600; color:#e8912d; line-height:1; }
+  #dishes { flex:1; min-width:0; font-size:9px; line-height:1.2; color:#e6edf3; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   #dishes.muted { color:#6e7681; }
-  #kcal { flex:none; font-size:11px; color:#6e7681; white-space:nowrap; }
+  #kcal { flex:none; font-size:9px; line-height:1.2; color:#6e7681; white-space:nowrap; }
 
-  /* ---- 3행: 알림 + 다음 일정 ---- */
-  /* 오른쪽 열은 fit-content(46%): 내용만큼 쓰되 컨테이너의 46%를 넘지 않는다(항목의 max-width:%는 그리드 영역 기준이라 여기서 정한다) */
-  #ticker { min-width:0; height:24px; display:grid; grid-template-columns:minmax(0,1fr) fit-content(46%); align-items:center; gap:8px; padding:0 8px; border-radius:6px; background:#11151a; border:1px solid #1c2128; }
-  #tkLeft { min-width:0; display:flex; align-items:center; gap:6px; cursor:pointer; }
-  #tkLeft:focus-visible, #tkRight:focus-visible { outline:none; box-shadow:0 0 0 2px #58a6ff66; border-radius:4px; }
-  #tkTag { flex:none; font-size:11px; font-weight:700; color:#f85149; letter-spacing:.5px; }
-  #tkText { min-width:0; font-size:12px; color:#e6edf3; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  #tkText b { color:#ffa657; font-weight:600; }
-  #tkText.muted { color:#6e7681; }
+  /* ---- 3행: [큐알림 라벨][흐르는 본문][다음 일정] ---- */
+  #ticker { min-width:0; height:24px; display:grid; grid-template-columns:auto minmax(0,1fr) fit-content(40%); align-items:center; gap:8px; padding:0 8px; border-radius:6px; background:#11151a; border:1px solid #1c2128; }
+  #tkTag { flex:none; font-size:11px; font-weight:700; color:#f85149; letter-spacing:.5px; white-space:nowrap; }
+  #tkRun { min-width:0; height:100%; overflow:hidden; position:relative; cursor:pointer; outline:none; }
+  #tkRun:focus-visible { box-shadow:0 0 0 2px #58a6ff66; border-radius:4px; }
+  #tkTrack { position:absolute; top:0; left:0; height:100%; display:flex; align-items:center; white-space:nowrap; font-size:12px; color:#e6edf3; will-change:transform; }
+  #tkTrack b { color:#ffa657; font-weight:600; }
+  #tkTrack .sep { color:#6e7681; margin:0 10px; }
+  #tkTrack.roll { animation:roll var(--dur, 20s) linear infinite; }
+  @keyframes roll { from { transform:translateX(var(--from, 0px)); } to { transform:translateX(var(--to, -100%)); } }
+  #tkRun:hover #tkTrack, #tkRun:focus-visible #tkTrack, #ticker.paused #tkTrack { animation-play-state:paused; }
+  #tkTrack.still { position:static; overflow:hidden; text-overflow:ellipsis; display:block; line-height:22px; }   /* 동작 줄이기 또는 알림 없음: 멈춘 한 줄 */
+  #tkTrack.muted { color:#6e7681; }
+  @media (prefers-reduced-motion: reduce) { #tkTrack.roll { animation:none; } }
   #tkRight { min-width:0; width:100%; display:flex; align-items:center; gap:5px; cursor:pointer; overflow:hidden; }
   #tkRight.hide { display:none; }
+  #tkRight:focus-visible { outline:none; box-shadow:0 0 0 2px #58a6ff66; border-radius:4px; }
   #nxLabel { flex:none; font-size:11px; color:#8b949e; }
   #nxTime { flex:none; font-size:12px; font-weight:700; color:#ffa657; }
   #nxTitle { min-width:0; font-size:12px; color:#e6edf3; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
@@ -110,8 +123,8 @@
   /* ---- 상세 보기 (한 개, 창 안에서만) ---- */
   #detail { position:fixed; left:8px; right:8px; bottom:8px; z-index:900; display:none; max-height:calc(100% - 16px); overflow:auto; background:#161b22; border:1px solid #30363d; border-radius:8px; padding:8px 10px; box-shadow:0 8px 24px #000a; }
   #detail.on { display:block; }
-  #detail h4 { font-size:12px; color:#8b949e; font-weight:600; margin-bottom:4px; display:flex; justify-content:space-between; }
-  #detail h4 span { color:#6e7681; font-weight:400; }
+  #detail h4 { font-size:12px; color:#8b949e; font-weight:600; margin-bottom:4px; display:flex; justify-content:space-between; gap:8px; }
+  #detail h4 span:last-child { color:#6e7681; font-weight:400; white-space:nowrap; }
   #detail ul { list-style:none; }
   #detail li { font-size:13px; color:#e6edf3; line-height:1.45; overflow-wrap:anywhere; }
   #detail li b { color:#ffa657; font-weight:600; }
@@ -136,20 +149,14 @@
     <div id="clock"><span id="hm">--:--</span><span id="sec">--</span></div>
     <div id="dateLine">----------</div>
 
-    <div id="class">
-      <span id="classState">수업</span>
-      <span id="classMain">—</span>
-      <span id="classTime"></span>
-    </div>
-
     <details id="wx">
       <summary title="일출·일몰·풍속 보기">
-        <div id="wxIcon"></div>
-        <div id="wxTemp">--<small>°C</small></div>
-        <div id="wxMeta">
+        <div id="wxLine">
+          <div id="wxIcon"></div>
+          <div id="wxTemp">--<small>°C</small></div>
           <div id="wxName">--</div>
-          <div id="wxRange">최저 <span id="tmin">--</span>° · 최고 <span id="tmax">--</span>°</div>
         </div>
+        <div id="wxRange">최저 <span id="tmin">--</span>° · 최고 <span id="tmax">--</span>°</div>
       </summary>
       <div id="wxMore">
         <span><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#dcdcdc" stroke-width="1.8"><path d="M3 18h18M12 3v6M8 9l4-4 4 4M5 14l1 1M19 14l-1 1"/></svg>일출 <span id="sunrise">--:--</span></span>
@@ -157,6 +164,12 @@
         <span><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#dcdcdc" stroke-width="1.8"><path d="M3 8h11a3 3 0 1 0-3-3M3 13h15a3 3 0 1 1-3 3M3 18h9"/></svg>바람 <span id="wind">--</span> km/h</span>
       </div>
     </details>
+
+    <div id="class">
+      <span id="classState">수업</span>
+      <span id="classMain">—</span>
+      <span id="classTime"></span>
+    </div>
   </div>
 
   <div id="cal">
@@ -176,12 +189,10 @@
 </div>
 
 <div id="ticker">
-  <div id="tkLeft" tabindex="0" role="button" aria-label="알림 전체 보기">
-    <span id="tkTag">큐 알림</span>
-    <span id="tkText" class="muted">알림 없음</span>
-  </div>
+  <span id="tkTag">큐알림</span>
+  <div id="tkRun" tabindex="0" role="button" aria-label="알림 전체 보기"><div id="tkTrack" class="still muted">알림 없음</div></div>
   <div id="tkRight" class="hide" tabindex="0" role="button" aria-label="다음 일정 전체 보기">
-    <span id="nxLabel">다음 일정</span>
+    <span id="nxLabel">다음</span>
     <span id="nxTime"></span>
     <span id="nxTitle"></span>
   </div>
@@ -204,6 +215,7 @@ var API = 'https://script.google.com/macros/s/AKfycbxXYMueYS6ex0eoF3Xp1-WkDOvdSW
 
 /* ===== 알림 설정 ===== */
 var ALERT_SECONDS = 15;   // 전체화면 알림 표시 시간
+var TICKER_SPEED  = 40;   // 자막 이동 속도 (px/초). 이 값 하나로 빠르기를 조절한다
 
 var DATA = null, viewY = null, viewM = null, lastNav = 0, cbSeq = 0;
 var firedKey = null, alertTimer = null;
@@ -249,7 +261,7 @@ function onData(d) {
   renderTicker(d.q);
 }
 
-/* ===== 시계 (계산 방식은 기존 그대로, 날짜 표기만 「9월 28일 월요일」) ===== */
+/* ===== 시계 (계산은 기존 그대로, 표기만 「9월 28일 월요일」) ===== */
 function tick() {
   var n = new Date();
   document.getElementById('hm').textContent = p(n.getHours()) + ':' + p(n.getMinutes());
@@ -265,7 +277,7 @@ function toMin(hhmm) {
   return (+a[0]) * 60 + (+a[1]);
 }
 
-/* ===== 수업 — 기존 로직 그대로, 문구 위계만 정리 ===== */
+/* ===== 수업 — 기존 로직 그대로 ===== */
 function todayList(n) {
   var rows = DATA.timetable[n.getDay()];
   if (!rows) return [];
@@ -281,53 +293,43 @@ function todayList(n) {
   return list;
 }
 
+function setText(id, v) { var el = document.getElementById(id); if (el.textContent !== v) el.textContent = v; }   // 같은 값이면 건드리지 않는다(떨림 방지)
+
 function renderClass(n) {
   if (!DATA) return;
 
-  var box   = document.getElementById('class');
-  var state = document.getElementById('classState');
-  var main  = document.getElementById('classMain');
-  var time  = document.getElementById('classTime');
-  box.className = '';
-
+  var box = document.getElementById('class');
   var list = todayList(n);
-  if (list.length === 0) {
-    state.textContent = '수업'; main.textContent = '없음'; time.textContent = '';
-    return;
-  }
-
-  var nowMin = n.getHours() * 60 + n.getMinutes();
-
-  // 수업 중
-  for (var j = 0; j < list.length; j++) {
-    if (nowMin >= list[j].s && nowMin < list[j].e) {
-      box.className = 'now';
-      state.textContent = '수업 중';
-      main.textContent  = list[j].no + '교시 · ' + list[j].cls + '반';
-      time.textContent  = '종료까지 ' + (list[j].e - nowMin) + '분';
-      // 시작 직후 1분 안이면 전체화면 알림
-      if (nowMin === list[j].s) tryAlert(n, list[j]);
-      return;
-    }
-  }
-
-  // 다음 수업
-  for (var k = 0; k < list.length; k++) {
-    if (list[k].s > nowMin) {
-      var left = list[k].s - nowMin;
-      if (left <= DATA.alertMin) {
-        box.className = 'soon';
-        state.textContent = left + '분 후 시작';
-      } else {
-        state.textContent = '다음 수업';
+  var cls = '', st, mn, tm;
+  if (list.length === 0) { st = '수업'; mn = '없음'; tm = ''; }
+  else {
+    var nowMin = n.getHours() * 60 + n.getMinutes();
+    var found = false;
+    // 수업 중
+    for (var j = 0; j < list.length && !found; j++) {
+      if (nowMin >= list[j].s && nowMin < list[j].e) {
+        cls = 'now'; st = '수업 중';
+        mn = list[j].no + '교시 · ' + list[j].cls + '반';
+        tm = '종료까지 ' + (list[j].e - nowMin) + '분';
+        if (nowMin === list[j].s) tryAlert(n, list[j]);   // 시작 직후 1분 안이면 전체화면 알림
+        found = true;
       }
-      main.textContent = list[k].no + '교시 · ' + list[k].cls + '반';
-      time.textContent = list[k].stext + ' – ' + list[k].etext;
-      return;
     }
+    // 다음 수업
+    for (var k = 0; k < list.length && !found; k++) {
+      if (list[k].s > nowMin) {
+        var left = list[k].s - nowMin;
+        if (left <= DATA.alertMin) { cls = 'soon'; st = left + '분 후 시작'; }
+        else { st = '다음 수업'; }
+        mn = list[k].no + '교시 · ' + list[k].cls + '반';
+        tm = list[k].stext + ' – ' + list[k].etext;
+        found = true;
+      }
+    }
+    if (!found) { st = '오늘 수업'; mn = '종료'; tm = ''; }
   }
-
-  state.textContent = '오늘 수업'; main.textContent = '종료'; time.textContent = '';
+  if (box.className !== cls) box.className = cls;
+  setText('classState', st); setText('classMain', mn); setText('classTime', tm);
 }
 
 /* ===== 전체화면 알림 — 기존 그대로 ===== */
@@ -354,7 +356,7 @@ function closeAlert() {
 var MEAL = null;
 function setMealState(text) {
   var el = document.getElementById('dishes');
-  el.textContent = text; el.className = 'muted';
+  el.textContent = text; el.className = 'muted'; el.title = '';
   document.getElementById('kcal').textContent = '';
 }
 function renderMeal(m) {
@@ -369,7 +371,7 @@ function renderMeal(m) {
   document.getElementById('kcal').textContent = m.kcal || '';
 }
 
-/* ===== 날씨: 기본 정보 + 펼쳐 보기(일출·일몰·풍속) ===== */
+/* ===== 날씨: 한 줄(아이콘·온도·지역) + 최저·최고, 펼치면 일출·일몰·풍속 ===== */
 function renderWeather(w) {
   if (!w || !w.ok) {
     document.getElementById('wxName').textContent = w ? w.name : '--';
@@ -402,7 +404,7 @@ function iconFor(c) {
   return '<svg ' + S + '><path d="M17 18H8a4 4 0 0 1 0-8 5 5 0 0 1 9.5 1.5A3.3 3.3 0 0 1 17 18z"/></svg>';
 }
 
-/* ===== 달력: 7열 그리드, 날짜 + 일정 점, 누르면 그날 일정 전체 ===== */
+/* ===== 달력: 날짜 아래 일정 제목 한 줄(항상), 누르거나 Enter로 그날 일정 전체 ===== */
 function moveMonth(delta) {
   lastNav = Date.now();
   viewM += delta;
@@ -446,16 +448,18 @@ function drawCalendar() {
       var items = ds ? (DATA.eventMap[ds] || []) : [];
       if (items.length) {
         cls += ' has';
-        var dots = document.createElement('div'); dots.className = 'dots';
-        items.slice(0, 3).forEach(function(i) { var d = document.createElement('span'); d.className = 'dot' + (i.type === '주요행사' ? ' main' : ''); dots.appendChild(d); });
-        cell.appendChild(dots);
+        // 첫 일정 제목(원문 앞부분이 보이게 말줄임). 둘 이상이면 " +n"을 뒤에 붙이되 제목이 밀리면 브라우저가 뒤쪽(+n)부터 자른다
         var ev = document.createElement('div'); ev.className = 'evline' + (items[0].type === '주요행사' ? ' main' : '');
-        ev.textContent = items[0].text + (items.length > 1 ? ' 외 ' + (items.length - 1) : '');
+        ev.appendChild(document.createTextNode(items[0].text));
+        if (items.length > 1) { var more = document.createElement('span'); more.className = 'more'; more.textContent = ' +' + (items.length - 1); ev.appendChild(more); }
         cell.appendChild(ev);
+        if (items.length > 1) {   // 창이 넉넉할 때만 보이는 둘째 줄
+          var ev2 = document.createElement('div'); ev2.className = 'evline evline2' + (items[1].type === '주요행사' ? ' main' : ''); ev2.textContent = items[1].text; cell.appendChild(ev2);
+        }
         cell.title = items.map(function(i) { return '[' + i.type + '] ' + i.text; }).join('\n');
         cell.tabIndex = 0;
         cell.setAttribute('role', 'button');
-        cell.setAttribute('aria-label', (viewM) + '월 ' + num + '일 일정 ' + items.length + '건');
+        cell.setAttribute('aria-label', viewM + '월 ' + num + '일 일정 ' + items.length + '건');
         (function(cell, ds, items) {   // 반복문의 var cell 은 마지막 칸을 가리키므로 인자로 묶는다
           cell.onclick = function(e) { e.stopPropagation(); showDetail(ds.replace(/^\d+-0?(\d+)-0?(\d+)$/, '$1월 $2일') + ' 일정', items.map(function(i) { return { k: i.type, t: i.text, main: i.type === '주요행사' }; }), 'cal'); };
           cell.onkeydown = function(e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); cell.onclick(e); } };
@@ -467,23 +471,28 @@ function drawCalendar() {
   }
 }
 
-/* ===== 3행: 큐 알림(왼쪽) + 다음 일정(오른쪽). 앱스 스크립트가 q:{at, items:[{k,t,until}]}를 실어 준다 ===== */
-var lastQ = null, lastKey = null;
+/* ===== 3행: [큐알림][흐르는 본문][다음 일정]. 앱스 스크립트가 q:{at, items:[{k,t,until}]}를 실어 준다 =====
+   자막은 자료가 실제로 바뀔 때만 다시 만든다(시계의 매초 갱신과 무관). 이동 시간은 글 길이로 계산(TICKER_SPEED px/초). */
+var lastQ = null, lastKey = null, tickerItems = [];
+function liveItems(q) {
+  var now = Date.now();
+  return (q && q.items) ? q.items.filter(function(x){ return x && x.t && !(x.until && Date.parse(x.until) < now); }) : [];
+}
 function renderTicker(q) {
   lastQ = q;
-  var now = Date.now();
-  var items = (q && q.items) ? q.items.filter(function(x){ return x && x.t && !(x.until && Date.parse(x.until) < now); }) : [];
+  var items = liveItems(q);
   var sig = items.map(function(x){ return (x.k || '') + '|' + x.t; }).join('\n');
   if (sig === lastKey) return;
   lastKey = sig;
   var dbox = document.getElementById('detail');
-  if (dbox.classList.contains('on') && (dbox.dataset.kind === 'ticker' || dbox.dataset.kind === 'next')) hideDetail();   // 알림 내용이 바뀌면 알림·다음 일정 상세만 닫는다(급식·달력 상세는 그대로)
+  if (dbox.classList.contains('on') && (dbox.dataset.kind === 'ticker' || dbox.dataset.kind === 'next')) hideDetail();   // 알림이 바뀌면 알림·다음 일정 상세만 닫는다
 
   var next = null, rest = [];
   items.forEach(function(x) {
     var m = /^다음\s+(\d\d:\d\d)$/.exec(x.k || '');
     if (m && !next) next = { time: m[1], t: x.t }; else rest.push(x);
   });
+  tickerItems = rest;
 
   var right = document.getElementById('tkRight');
   if (next) {
@@ -493,20 +502,43 @@ function renderTicker(q) {
     right.title = next.time + ' ' + next.t;
   } else { right.classList.add('hide'); right.title = ''; }
 
-  var el = document.getElementById('tkText');
-  el.textContent = '';
-  if (!rest.length) { el.textContent = next ? '' : '알림 없음'; el.className = 'muted'; }
-  else {
-    el.className = '';
-    rest.forEach(function(x, i) {
-      if (i) el.appendChild(document.createTextNode('  ·  '));
-      if (x.k) { var b = document.createElement('b'); b.textContent = x.k + ' '; el.appendChild(b); }
-      el.appendChild(document.createTextNode(String(x.t)));
-    });
+  var track = document.getElementById('tkTrack');
+  track.style.animation = '';
+  track.textContent = '';
+  if (!rest.length) {
+    track.className = 'still muted'; track.textContent = next ? '' : '알림 없음';
+    document.getElementById('tkRun').title = '';
+    return;
   }
-  document.getElementById('tkLeft').title = rest.map(function(x) { return (x.k ? x.k + ' ' : '') + x.t; }).join('\n');
+  rest.forEach(function(x, i) {
+    if (i) { var sp = document.createElement('span'); sp.className = 'sep'; sp.textContent = '·'; track.appendChild(sp); }
+    if (x.k) { var b = document.createElement('b'); b.textContent = x.k + ' '; track.appendChild(b); }
+    track.appendChild(document.createTextNode(String(x.t)));
+  });
+  document.getElementById('tkRun').title = rest.map(function(x) { return (x.k ? x.k + ' ' : '') + x.t; }).join('\n');
+  layoutTicker();
 }
-setInterval(function(){ if (lastQ) renderTicker(lastQ); }, 60000);   // 분마다 지난 줄을 걸러낸다
+/* 표시창 너비와 글 너비로 이동 거리·시간을 정한다. 창 크기가 바뀌면 다시 계산 */
+function layoutTicker() {
+  var track = document.getElementById('tkTrack'), run = document.getElementById('tkRun');
+  if (!tickerItems.length) return;
+  var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (reduce) { track.className = 'still'; return; }   // 동작 줄이기: 멈춘 한 줄(말줄임) + 상세 보기
+  track.className = '';
+  var W = run.clientWidth, T = track.scrollWidth;
+  var dist = W + T;   // 오른쪽 끝에서 나타나 왼쪽 끝으로 완전히 사라진다
+  track.style.setProperty('--from', W + 'px');
+  track.style.setProperty('--to', (-T) + 'px');
+  track.style.setProperty('--dur', (dist / TICKER_SPEED).toFixed(2) + 's');
+  track.className = 'roll';
+}
+var resizeTimer = null;
+window.addEventListener('resize', function() { clearTimeout(resizeTimer); resizeTimer = setTimeout(function() { fitMode(); layoutTicker(); }, 150); });
+if (window.matchMedia) {   // 운영체제의 「동작 줄이기」를 켜고 끄면 그 자리에서 자막을 멈추거나 다시 흘린다 (강희 지적)
+  var mq = window.matchMedia('(prefers-reduced-motion: reduce)');
+  if (mq.addEventListener) mq.addEventListener('change', layoutTicker); else if (mq.addListener) mq.addListener(layoutTicker);
+}
+setInterval(function(){ if (lastQ) renderTicker(lastQ); }, 60000);   // 분마다 지난 줄을 걸러낸다(내용이 같으면 자막은 그대로 흐른다)
 
 /* ===== 상세 보기 ===== */
 function showDetail(title, rows, kind) {
@@ -522,8 +554,9 @@ function showDetail(title, rows, kind) {
     ul.appendChild(li);
   });
   box.classList.add('on');
+  document.getElementById('ticker').classList.add('paused');   // 상세를 읽는 동안 자막은 멈춘다
 }
-function hideDetail() { document.getElementById('detail').classList.remove('on'); }
+function hideDetail() { document.getElementById('detail').classList.remove('on'); document.getElementById('ticker').classList.remove('paused'); }
 document.addEventListener('click', function(e) { if (document.getElementById('detail').classList.contains('on') && !e.target.closest('#detail')) hideDetail(); });
 document.addEventListener('keydown', function(e) { if (e.key === 'Escape') { hideDetail(); document.getElementById('wx').open = false; } });
 
@@ -537,9 +570,9 @@ bindDetail('mealRow', function() {
   if (MEAL && MEAL.kcal) rows.push({ k: '열량', t: MEAL.kcal });
   showDetail(((MEAL && MEAL.label) || '급식') + (MEAL && MEAL.date ? ' · ' + MEAL.date : ''), rows, 'meal');
 });
-bindDetail('tkLeft', function() {
-  var items = (lastQ && lastQ.items) ? lastQ.items.filter(function(x){ return x && x.t && !(x.until && Date.parse(x.until) < Date.now()); }) : [];
-  showDetail('큐 알림' + (lastQ && lastQ.at ? ' · ' + lastQ.at : ''), items.map(function(x) { return { k: x.k, t: x.t }; }), 'ticker');
+bindDetail('tkRun', function() {
+  var items = liveItems(lastQ);
+  showDetail('큐알림' + (lastQ && lastQ.at ? ' · ' + lastQ.at : ''), items.map(function(x) { return { k: x.k, t: x.t }; }), 'ticker');
 });
 bindDetail('tkRight', function() {
   showDetail('다음 일정', [{ k: document.getElementById('nxTime').textContent, t: document.getElementById('nxTitle').textContent }], 'next');
@@ -550,13 +583,14 @@ function fitZoom() {
   var k = Math.min(window.innerWidth / 640, window.innerHeight / 264);
   document.documentElement.style.zoom = k > 1 ? String(Math.floor(k * 100) / 100) : '';
 }
-/* 창이 넉넉하면(확대 뒤 높이 320px 이상) 달력에 행사 제목 한 줄을 더 보인다 */
+/* 확대 뒤 높이가 320px 이상이면 달력 글자를 키우고, 400px 이상이면 둘째 일정 줄도 보인다 */
 function fitMode() {
   fitZoom();
   var z = parseFloat(document.documentElement.style.zoom) || 1;
-  document.body.classList.toggle('tall', window.innerHeight / z >= 320);
+  var h = window.innerHeight / z;
+  document.body.classList.toggle('tall', h >= 320);
+  document.body.classList.toggle('tall2', h >= 400);
 }
-window.addEventListener('resize', fitMode);
 fitMode();
 
 tick();
