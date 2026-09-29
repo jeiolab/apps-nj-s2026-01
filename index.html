@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="ko">
+<!-- 2026-09-29 v7: 큐알림 자동 순환 및 장시간 실행 안정화. API 주소와 본문 배치는 유지. -->
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -7,7 +8,7 @@
 <style>
   /* 2026-09-28 큐 v3: 세 행(본문 / 급식 / 큐알림 자막). 기준 640×264, 모든 치수 border-box.
      왼쪽 패널은 시계 → 날짜 → 날씨 → 수업 순서로 한 중심선에 가운데 정렬. 달력은 날짜 아래 일정 제목 한 줄을 항상 보인다.
-     기존 시계·수업·전체화면 알림·급식·날씨·달력·JSONP 1분 갱신 로직은 그대로다. */
+     v7: 화면 배치는 유지하고 자막·데이터 갱신·입력 검증 로직을 보강했다. */
   * { margin:0; padding:0; box-sizing:border-box; }
   html, body { width:100%; height:100%; }
   body {
@@ -27,20 +28,17 @@
     padding:8px;
     overflow:hidden;
   }
-
   /* ---- 1행: 왼쪽 패널 + 달력 ---- */
   #main { display:grid; grid-template-columns:192px minmax(0,1fr); gap:8px; min-height:0; min-width:0; }
   #left { min-width:0; min-height:0; display:flex; flex-direction:column; align-items:center; justify-content:space-between; overflow:hidden; text-align:center; padding-top:2px; }
   #left > * { width:100%; }
   #g1 { display:flex; flex-direction:column; align-items:center; gap:1px; }           /* 시계 + 날짜: 아주 약한 간격 */
   #g2 { display:flex; flex-direction:column; align-items:center; }                    /* 날씨 묶음 — 위·아래 간격은 space-between 이 똑같이 나눈다 */
-
   /* 시계·날짜: 묶음 전체를 가운데, 초는 작게. 분·초가 바뀌어도 폭이 같도록 숫자 폭 고정 */
   #clock { display:flex; align-items:baseline; justify-content:center; line-height:1; gap:4px; }
   #hm  { font-size:42px; font-weight:700; letter-spacing:-1px; }
   #sec { font-size:13px; font-weight:500; color:#8b949e; width:2ch; text-align:left; }
   #dateLine { font-size:13px; color:#a0a6ad; line-height:1.4; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-
   /* 날씨: 날짜 바로 아래(상단 여백 0). 아이콘·온도·지역 한 줄, 그 아래 최저·최고 한 줄. 눌러 펼치면 일출·일몰·풍속 */
   #wx { position:relative; min-width:0; }
   #wx summary { list-style:none; cursor:pointer; display:flex; flex-direction:column; align-items:center; min-width:0; outline:none; border-radius:6px; padding:0 4px; }
@@ -55,7 +53,6 @@
   #wxRange { font-size:11px; color:#a0a6ad; line-height:1.5; white-space:nowrap; }
   #wxMore { position:absolute; left:0; right:0; top:100%; z-index:5; font-size:11px; color:#e6edf3; background:#161b22; border:1px solid #30363d; border-radius:6px; padding:4px 6px; display:flex; gap:10px; flex-wrap:wrap; justify-content:center; box-shadow:0 6px 16px #0008; }   /* 배치를 밀지 않는 떠 있는 상자 */
   #wxMore span { display:inline-flex; align-items:center; gap:3px; }
-
   /* 수업: 날씨 아래 최소 간격. 상태 / 교시·반 / 남은 시간 위계 */
   #class {
     padding:4px 8px 5px; border-radius:6px; width:100%;
@@ -71,7 +68,6 @@
   #class.soon #classState { color:#ffb45c; }
   #classMain { font-size:19px; font-weight:700; color:#fff; line-height:1.15; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%; }
   #classTime { font-size:12px; color:#8b949e; line-height:1.4; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%; }
-
   /* 달력: 머리(18px) + 요일(12px) + 6주. 칸마다 날짜 위, 일정 제목 아래(항상 한 줄) */
   #cal { min-width:0; min-height:0; display:flex; flex-direction:column; }
   #calHead { display:flex; align-items:center; justify-content:center; gap:6px; height:18px; flex:none; }
@@ -98,7 +94,6 @@
   body.tall .evline { font-size:8px; line-height:10px; }
   body.tall2 .evline2 { display:block; }
   body.tall #grid { grid-template-rows:14px repeat(6, minmax(0,1fr)); }
-
   /* ---- 2행: 급식 — 얇은 정보 바(18px). 메뉴 본문 8px → 6px, 라벨 11px → 9px ---- */
   #mealRow { min-width:0; height:18px; display:flex; align-items:center; gap:6px; padding:0 7px; border-radius:4px; background:#11151a; border:1px solid #1c2128; cursor:pointer; }
   #mealRow:focus-visible { outline:none; box-shadow:0 0 0 2px #58a6ff66; }
@@ -106,28 +101,22 @@
   #dishes { flex:1; min-width:0; font-size:6px; line-height:1; color:#e6edf3; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   #dishes.muted { color:#6e7681; }
   #kcal { flex:none; font-size:6px; line-height:1; color:#6e7681; white-space:nowrap; }
-
-  /* ---- 3행: [큐알림 라벨][흐르는 본문][다음 일정] ---- */
-  #ticker { min-width:0; height:16px; display:grid; grid-template-columns:auto minmax(0,1fr) fit-content(40%); align-items:center; gap:6px; padding:0 7px; border-radius:4px; background:#11151a; border:1px solid #1c2128; }
-  #tkTag { flex:none; font-size:8px; font-weight:700; color:#f85149; letter-spacing:.5px; white-space:nowrap; line-height:1; }
+  /* ---- 3행: 큐알림 / 자동 순환 / 수동 일시정지 ---- */
+  #ticker { min-width:0; height:16px; display:grid; grid-template-columns:auto minmax(0,1fr) auto; align-items:center; gap:6px; padding:0 7px; border-radius:4px; background:#11151a; border:1px solid #1c2128; }
+  #tkTag { font-size:8px; font-weight:700; color:#f85149; letter-spacing:.5px; white-space:nowrap; line-height:1; }
   #tkRun { min-width:0; height:100%; overflow:hidden; position:relative; cursor:pointer; outline:none; }
-  #tkRun:focus-visible { box-shadow:0 0 0 2px #58a6ff66; border-radius:4px; }
-  #tkTrack { position:absolute; top:0; left:0; height:100%; display:flex; align-items:center; white-space:nowrap; font-size:9px; color:#e6edf3; will-change:transform; }
+  #tkRun:focus-visible { box-shadow:inset 0 0 0 1px #58a6ff; border-radius:3px; }
+  #tkTrack { position:absolute; inset:0 auto 0 0; display:flex; align-items:center; width:max-content; height:100%; white-space:nowrap; font-size:9px; color:#e6edf3; transform:translate3d(0,0,0); }
+  #tkTrack.moving { will-change:transform; }
+  #tkTrack .tkGroup { display:block; flex:0 0 auto; width:max-content; white-space:nowrap; }
   #tkTrack b { color:#ffa657; font-weight:600; }
-  #tkTrack .sep { color:#6e7681; margin:0 8px; }
-  #tkTrack.roll { animation:roll var(--dur, 20s) linear infinite; }
-  @keyframes roll { from { transform:translateX(var(--from, 0px)); } to { transform:translateX(var(--to, -100%)); } }
-  #ticker.paused #tkTrack { animation-play-state:paused; }   /* 상세를 읽는 동안만. 올림(:hover)·초점 멈춤은 뺐다 — 터치 화면에서 누른 자리가 올림으로 남아 자막이 멈추던 원인(2026-09-29) */
-  #tkTrack.still { position:static; overflow:hidden; text-overflow:ellipsis; display:block; line-height:14px; }
-  #tkTrack .blk { display:inline-block; white-space:nowrap; }   /* inline-flex면 굵은 제목 뒤 공백이 사라져 「19:00독재스터디」처럼 붙는다 */   /* 동작 줄이기 또는 알림 없음: 멈춘 한 줄 */
+  #tkTrack .sep { display:inline-block; color:#6e7681; margin:0 10px; }
+  #tkTrack.still { position:static; display:block; width:100%; overflow:hidden; text-overflow:ellipsis; line-height:14px; transform:none; }
   #tkTrack.muted { color:#6e7681; }
-  @media (prefers-reduced-motion: reduce) { #tkTrack.roll { animation:none; } }
-  #tkRight { min-width:0; width:100%; display:flex; align-items:center; gap:5px; cursor:pointer; overflow:hidden; }
-  #tkRight.hide { display:none; }
-  #tkRight:focus-visible { outline:none; box-shadow:0 0 0 2px #58a6ff66; border-radius:4px; }
-  #nxLabel { flex:none; font-size:8px; color:#8b949e; }
-  #nxTime { flex:none; font-size:9px; font-weight:700; color:#ffa657; }
-  #nxTitle { min-width:0; font-size:9px; color:#e6edf3; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  #tkToggle { width:14px; height:14px; padding:0; border:0; border-radius:2px; background:transparent; color:#8b949e; font-size:9px; line-height:14px; cursor:pointer; }
+  #tkToggle:hover, #tkToggle:focus-visible { color:#fff; background:#ffffff14; outline:none; }
+  #tkToggle:disabled { cursor:default; opacity:.35; }
+  /* 자막 모드는 JS 설정 한 곳에서만 결정한다. CSS와 JS가 서로 재생을 덮어쓰지 않는다. */
 
   /* ---- 상세 보기 (한 개, 창 안에서만) ---- */
   #detail { position:absolute; left:8px; right:8px; bottom:8px; z-index:900; display:none; max-height:calc(100% - 16px); overflow:auto; background:#161b22; border:1px solid #30363d; border-radius:8px; padding:8px 10px; box-shadow:0 8px 24px #000a; }
@@ -138,7 +127,6 @@
   #detail li { font-size:13px; color:#e6edf3; line-height:1.45; overflow-wrap:anywhere; }
   #detail li b { color:#ffa657; font-weight:600; }
   #detail li.main { color:#ffa657; }
-
   /* ---- 전체화면 알림 (기존) ---- */
   #alert { position:fixed; inset:0; z-index:999; display:none; flex-direction:column; align-items:center; justify-content:center; background:#e8912d; color:#1a1200; cursor:pointer; }
   #alert.on { display:flex; animation:flash 1s steps(1,end) infinite; }
@@ -147,20 +135,17 @@
   #alertMain { font-size:44vh; font-weight:800; line-height:1; letter-spacing:-.03em; }
   #alertSub  { font-size:8vh; font-weight:500; margin-top:1vh; }
   #alertHint { position:absolute; bottom:2vh; font-size:3.5vh; opacity:.7; }
-
   #err { position:fixed; top:4px; right:8px; font-size:10px; color:#f85149; }
 </style>
 </head>
 <body>
 <div id="stage">
-
 <div id="main">
   <div id="left">
     <div id="g1">
       <div id="clock"><span id="hm">--:--</span><span id="sec">--</span></div>
       <div id="dateLine">----------</div>
     </div>
-
     <div id="g2">
     <details id="wx">
       <summary title="일출·일몰·풍속 보기">
@@ -178,14 +163,12 @@
       </div>
     </details>
     </div>
-
     <div id="class">
       <span id="classState">수업</span>
       <span id="classMain">—</span>
       <span id="classTime"></span>
     </div>
   </div>
-
   <div id="cal">
     <div id="calHead">
       <button class="nav" type="button" onclick="moveMonth(-1)" aria-label="이전 달">‹</button>
@@ -195,149 +178,201 @@
     <div id="grid" role="grid" aria-label="월간 달력"></div>
   </div>
 </div>
-
 <div id="mealRow" tabindex="0" role="button" aria-label="급식 전체 보기">
   <span id="mealLabel">급식</span>
   <span id="dishes" class="muted">불러오는 중…</span>
   <span id="kcal"></span>
 </div>
-
-<div id="ticker">
+<div id="ticker" data-mode="empty">
   <span id="tkTag">큐알림</span>
-  <div id="tkRun" tabindex="0" role="button" aria-label="알림 전체 보기"><div id="tkTrack" class="still muted">알림 없음</div></div>
-  <div id="tkRight" class="hide" tabindex="0" role="button" aria-label="다음 일정 전체 보기">
-    <span id="nxLabel">다음</span>
-    <span id="nxTime"></span>
-    <span id="nxTitle"></span>
-  </div>
+  <div id="tkRun" tabindex="0" role="button" aria-label="알림 전체 보기" aria-controls="detail" aria-expanded="false"><div id="tkTrack" class="still muted" aria-hidden="true">알림을 불러오는 중…</div></div>
+  <button id="tkToggle" type="button" title="큐알림 일시정지" aria-label="큐알림 일시정지" aria-pressed="false" disabled>Ⅱ</button>
 </div>
 
 <div id="detail" role="dialog" aria-live="polite"><h4><span id="detailTitle"></span><span>창 밖을 누르거나 Esc로 닫기</span></h4><ul id="detailList"></ul></div>
 </div><!-- /stage -->
-
-<div id="alert" onclick="closeAlert()">
+<div id="alert" onclick="closeAlert()" role="alert" aria-live="assertive">
   <div id="alertTop">수업 시작</div>
   <div id="alertMain">—</div>
   <div id="alertSub"></div>
   <div id="alertHint">화면을 터치하면 닫힙니다</div>
 </div>
-
 <div id="err"></div>
-
 <script>
 /* ===== Apps Script 주소 ===== */
 var API = 'https://script.google.com/macros/s/AKfycbxXYMueYS6ex0eoF3Xp1-WkDOvdSW6j9sYJeEbQ8gAN74ZEScEc-Fp8lm69J2OwtEzg0A/exec';
-
-/* ===== 알림 설정 ===== */
-var ALERT_SECONDS = 15;   // 전체화면 알림 표시 시간
-var TICKER_SPEED  = 40;   // 자막 이동 속도 (px/초). 이 값 하나로 빠르기를 조절한다
+/* ===== 설정: 수정할 값은 이곳에 모아 둡니다 ===== */
+var ALERT_SECONDS = 15;              // 수업 시작 전체화면 알림
+var TICKER_SPEED = 40;               // 확대 전 CSS px/초. 작을수록 천천히 흐릅니다.
+var TICKER_MODE = 'scroll';          // scroll: 항상 흐름 / auto: 기기 설정 존중 / rotate: 항목 교체 / static: 정지
+var TICKER_ROTATE_SECONDS = 6;       // rotate 모드에서 항목을 바꾸는 간격
+var TICKER_PAUSE_ON_DETAIL = false;  // true: 큐알림 상세를 열었을 때만 자동 일시정지
+var LOAD_INTERVAL_MS = 60000;        // 데이터 갱신 간격
+var REQUEST_TIMEOUT_MS = 15000;      // 응답 대기 한도
 
 var DATA = null, viewY = null, viewM = null, lastNav = 0, cbSeq = 0;
 var firedKey = null, alertTimer = null;
 var DOW = ['일', '월', '화', '수', '목', '금', '토'];
-
-/* ===== 데이터 (JSONP) — 기존 그대로 ===== */
-function load() {
-  var name = 'cb' + (++cbSeq);
-  var s = document.createElement('script');
-  var done = false;
-
-  window[name] = function(d) {
-    done = true;
-    document.getElementById('err').textContent = '';
-    onData(d);
-    delete window[name];
-    if (s.parentNode) s.parentNode.removeChild(s);
-  };
-
-  s.src = API + '?callback=' + name + '&t=' + Date.now();
-  s.onerror = function() {
-    document.getElementById('err').textContent = '데이터 연결 실패';
-    delete window[name];
-    if (!DATA) { setMealState('급식을 불러오지 못했습니다'); }
-  };
-  document.head.appendChild(s);
-
-  setTimeout(function() {
-    if (!done) document.getElementById('err').textContent = '응답 지연';
-  }, 15000);
-}
-
-function onData(d) {
-  DATA = d;
-  var t = d.today.split('-');
-  if (viewY === null || Date.now() - lastNav > 120000) {
-    viewY = +t[0]; viewM = +t[1];
-  }
-  renderMeal(d.meal);
-  renderWeather(d.weather);
-  drawCalendar();
-  renderClass(new Date());
-  renderTicker(d.q);
-}
-
-/* ===== 시계 (계산은 기존 그대로, 표기만 「9월 28일 월요일」) ===== */
-function tick() {
-  var n = new Date();
-  document.getElementById('hm').textContent = p(n.getHours()) + ':' + p(n.getMinutes());
-  document.getElementById('sec').textContent = p(n.getSeconds());
-  document.getElementById('dateLine').textContent =
-    (n.getMonth() + 1) + '월 ' + n.getDate() + '일 ' + DOW[n.getDay()] + '요일';
-  renderClass(n);
-}
+var DOM = Object.create(null);
+function $(id) { return DOM[id] || (DOM[id] = document.getElementById(id)); }
 function p(n) { return (n < 10 ? '0' : '') + n; }
-
+function dateKey(n) { return n.getFullYear() + '-' + p(n.getMonth() + 1) + '-' + p(n.getDate()); }
+function setText(id, v) { var el = $(id); v = String(v); if (el.textContent !== v) el.textContent = v; }
 function toMin(hhmm) {
-  var a = hhmm.split(':');
-  return (+a[0]) * 60 + (+a[1]);
+  var m = /^(\d{1,2}):(\d{2})$/.exec(String(hhmm || ''));
+  return m && +m[1] < 24 && +m[2] < 60 ? +m[1] * 60 + +m[2] : NaN;
 }
+function objectOrEmpty(x) { return x && typeof x === 'object' && !Array.isArray(x) ? x : {}; }
 
-/* ===== 수업 — 기존 로직 그대로 ===== */
-function todayList(n) {
-  var rows = DATA.timetable[n.getDay()];
-  if (!rows) return [];
-  var list = [];
-  for (var i = 0; i < DATA.periods.length; i++) {
-    if (rows[i] === null || rows[i] === undefined) continue;
-    list.push({
-      no: DATA.periods[i].no, cls: rows[i],
-      s: toMin(DATA.periods[i].start), e: toMin(DATA.periods[i].end),
-      stext: DATA.periods[i].start, etext: DATA.periods[i].end
-    });
+/* ===== JSONP: 동시 요청 방지 / 완료 시 타이머·script 정리 / 오래된 응답 무시 ===== */
+var loadPending = false, loadTimer = null, lastLoadStarted = 0;
+function load() {
+  if (loadPending) return;
+  clearTimeout(loadTimer);
+  loadPending = true;
+  lastLoadStarted = Date.now();
+  var requestId = ++cbSeq;
+  var name = 'qBoardCb' + requestId;
+  var s = document.createElement('script');
+  var done = false, timeoutId = null;
+  function finish(error) {
+    if (done) return;
+    done = true;
+    clearTimeout(timeoutId);
+    s.onerror = s.onload = null;
+    if (s.parentNode) s.parentNode.removeChild(s);
+    // 이미 내려오는 중인 늦은 JSONP가 실행되어도 화면을 덮어쓰지 않는다.
+    // 임시 콜백도 제거하여 24시간 실행 시 전역 함수가 계속 쌓이지 않게 한다.
+    window[name] = function() {};
+    setTimeout(function() { delete window[name]; }, Math.max(120000, REQUEST_TIMEOUT_MS * 2));
+    loadPending = false;
+    if (error) {
+      setText('err', error + (DATA ? ' · 최근 정상 데이터 표시 중' : ''));
+      if (!DATA) setMealState('급식을 불러오지 못했습니다');
+    }
+    loadTimer = setTimeout(load, Math.max(1000, LOAD_INTERVAL_MS - (Date.now() - lastLoadStarted)));
   }
-  return list;
+  window[name] = function(d) {
+    if (done || requestId !== cbSeq) return;
+    try {
+      onData(d);
+      setText('err', '');
+      finish('');
+    } catch (error) {
+      console.error('학사일정 응답 처리 실패:', error);
+      finish('데이터 형식 확인 필요');
+    }
+  };
+  s.async = true;
+  s.onerror = function() { finish('데이터 연결 실패'); };
+  s.onload = function() { if (!done) finish('JSONP 응답 형식 확인 필요'); };
+  timeoutId = setTimeout(function() { finish('응답 지연'); }, REQUEST_TIMEOUT_MS);
+  s.src = API + (API.indexOf('?') >= 0 ? '&' : '?') + 'callback=' + encodeURIComponent(name) + '&t=' + Date.now();
+  document.head.appendChild(s);
 }
 
-function setText(id, v) { var el = document.getElementById(id); if (el.textContent !== v) el.textContent = v; }   // 같은 값이면 건드리지 않는다(떨림 방지)
+/* 원래 응답 필드(today, periods, timetable, eventMap, meal, weather, q)는 변경하지 않는다. */
+function normalizeData(d) {
+  if (!d || typeof d !== 'object' || Array.isArray(d) || !/^\d{4}-\d{2}-\d{2}$/.test(d.today || '')) {
+    throw new Error('today가 있는 데이터 객체가 필요합니다.');
+  }
+  var map = Object.create(null), rawMap = objectOrEmpty(d.eventMap);
+  Object.keys(rawMap).forEach(function(ds) {
+    if (!Array.isArray(rawMap[ds])) return;
+    map[ds] = rawMap[ds].filter(function(e) { return e && e.text !== undefined && e.text !== null; })
+      .map(function(e) { return { type: String(e.type || '일정'), text: String(e.text) }; });
+  });
+  var m = d.meal && typeof d.meal === 'object' ? d.meal : null;
+  var meal = m ? {
+    label: String(m.label || '급식'), date: String(m.date || ''), hasMeal: !!m.hasMeal,
+    dishes: Array.isArray(m.dishes) ? m.dishes.filter(function(x) { return x !== null && x !== undefined; }).map(String) : [],
+    kcal: m.kcal === null || m.kcal === undefined ? '' : String(m.kcal)
+  } : null;
+  return {
+    today: String(d.today),
+    periods: Array.isArray(d.periods) ? d.periods : [],
+    timetable: d.timetable && typeof d.timetable === 'object' ? d.timetable : {},
+    alertMin: Number.isFinite(Number(d.alertMin)) ? Math.max(0, Number(d.alertMin)) : 5,
+    eventMap: map, meal: meal,
+    weather: d.weather && typeof d.weather === 'object' ? d.weather : null,
+    q: d.q && typeof d.q === 'object' ? d.q : null
+  };
+}
+var lastCalendarKey = null, scheduleKey = null, scheduleCache = Object.create(null);
+function onData(d) {
+  var next = normalizeData(d); // 유효하지 않은 최상위 응답은 기존 정상 데이터를 유지한다.
+  var key = JSON.stringify([next.periods, next.timetable]);
+  if (key !== scheduleKey) { scheduleKey = key; scheduleCache = Object.create(null); }
+  DATA = next;
+  var n = new Date();
+  if (viewY === null || Date.now() - lastNav > 120000) {
+    viewY = n.getFullYear(); viewM = n.getMonth() + 1;
+  }
+  renderMeal(DATA.meal);
+  renderWeather(DATA.weather);
+  drawCalendar();
+  renderClass(n);
+  renderTicker(DATA.q);
+}
 
+/* ===== 시계: 초만 매초, 수업 계산·오늘 일정 확인은 분이 바뀔 때 ===== */
+var lastClockDate = '', lastClassMinute = '';
+function tick() {
+  var n = new Date(), ds = dateKey(n);
+  setText('hm', p(n.getHours()) + ':' + p(n.getMinutes()));
+  setText('sec', p(n.getSeconds()));
+  setText('dateLine', (n.getMonth() + 1) + '월 ' + n.getDate() + '일 ' + DOW[n.getDay()] + '요일');
+  var minute = ds + ' ' + n.getHours() + ':' + n.getMinutes();
+  if (minute !== lastClassMinute) {
+    lastClassMinute = minute;
+    renderClass(n);
+    if (DATA) {
+      if (Date.now() - lastNav > 120000) { viewY = n.getFullYear(); viewM = n.getMonth() + 1; }
+      drawCalendar();
+      renderTicker(lastQ);
+    }
+  }
+  if (lastClockDate && ds !== lastClockDate) load();
+  lastClockDate = ds;
+}
+
+/* ===== 수업: 요일별 목록을 캐시하고, 기존 수업·시작 알림 기준 유지 ===== */
+function todayList(n) {
+  if (!DATA) return [];
+  var day = n.getDay();
+  if (scheduleCache[day]) return scheduleCache[day];
+  var rows = DATA.timetable[day];
+  if (!Array.isArray(rows)) return (scheduleCache[day] = []);
+  var list = [];
+  DATA.periods.forEach(function(period, i) {
+    if (!period || rows[i] === null || rows[i] === undefined || String(rows[i]).trim() === '') return;
+    var start = toMin(period.start), end = toMin(period.end);
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return;
+    list.push({ no: period.no === undefined ? i + 1 : period.no, cls: String(rows[i]), s: start, e: end, stext: String(period.start), etext: String(period.end) });
+  });
+  list.sort(function(a, b) { return a.s - b.s; });
+  return (scheduleCache[day] = list);
+}
 function renderClass(n) {
   if (!DATA) return;
-
-  var box = document.getElementById('class');
-  var list = todayList(n);
+  var box = $('class'), list = todayList(n);
   var cls = '', st, mn, tm;
-  if (list.length === 0) { st = '수업'; mn = '없음'; tm = ''; }
+  if (!list.length) { st = '수업'; mn = '없음'; tm = ''; }
   else {
-    var nowMin = n.getHours() * 60 + n.getMinutes();
-    var found = false;
-    // 수업 중
+    var nowMin = n.getHours() * 60 + n.getMinutes(), found = false;
     for (var j = 0; j < list.length && !found; j++) {
       if (nowMin >= list[j].s && nowMin < list[j].e) {
-        cls = 'now'; st = '수업 중';
-        mn = list[j].no + '교시 · ' + list[j].cls + '반';
+        cls = 'now'; st = '수업 중'; mn = list[j].no + '교시 · ' + list[j].cls + '반';
         tm = '종료까지 ' + (list[j].e - nowMin) + '분';
-        if (nowMin === list[j].s) tryAlert(n, list[j]);   // 시작 직후 1분 안이면 전체화면 알림
+        if (nowMin === list[j].s) tryAlert(n, list[j]);
         found = true;
       }
     }
-    // 다음 수업
     for (var k = 0; k < list.length && !found; k++) {
       if (list[k].s > nowMin) {
         var left = list[k].s - nowMin;
-        if (left <= DATA.alertMin) { cls = 'soon'; st = left + '분 후 시작'; }
-        else { st = '다음 수업'; }
-        mn = list[k].no + '교시 · ' + list[k].cls + '반';
-        tm = list[k].stext + ' – ' + list[k].etext;
+        if (left <= DATA.alertMin) { cls = 'soon'; st = left + '분 후 시작'; } else { st = '다음 수업'; }
+        mn = list[k].no + '교시 · ' + list[k].cls + '반'; tm = list[k].stext + ' – ' + list[k].etext;
         found = true;
       }
     }
@@ -352,56 +387,48 @@ function tryAlert(n, item) {
   var key = n.toDateString() + '_' + item.no;
   if (firedKey === key) return;      // 같은 교시는 한 번만
   firedKey = key;
-
-  document.getElementById('alertMain').textContent = item.cls + '반';
-  document.getElementById('alertSub').textContent =
+  $('alertMain').textContent = item.cls + '반';
+  $('alertSub').textContent =
     item.no + '교시  ·  ' + item.stext + ' - ' + item.etext;
-  document.getElementById('alert').classList.add('on');
-
+  $('alert').classList.add('on');
   clearTimeout(alertTimer);
   alertTimer = setTimeout(closeAlert, ALERT_SECONDS * 1000);
 }
-
 function closeAlert() {
   clearTimeout(alertTimer);
-  document.getElementById('alert').classList.remove('on');
+  $('alert').classList.remove('on');
 }
-
 /* ===== 급식: 한 줄 요약 + 상세 보기 ===== */
 var MEAL = null;
 function setMealState(text) {
-  var el = document.getElementById('dishes');
+  var el = $('dishes');
   el.textContent = text; el.className = 'muted'; el.title = '';
-  document.getElementById('kcal').textContent = '';
+  $('kcal').textContent = '';
 }
 function renderMeal(m) {
   MEAL = m || null;
-  document.getElementById('mealLabel').textContent = (m && m.label) || '급식';
+  $('mealLabel').textContent = (m && m.label) || '급식';
   if (!m) { setMealState('급식 정보 없음'); return; }
   if (!m.hasMeal) { setMealState('급식 없음'); return; }
-  var el = document.getElementById('dishes');
-  el.textContent = m.dishes.join(' · ');
+  var el = $('dishes');
+  el.textContent = m.dishes.length ? m.dishes.join(' · ') : '메뉴 정보 없음';
   el.className = '';
   el.title = m.dishes.join(', ');
-  document.getElementById('kcal').textContent = m.kcal || '';
+  $('kcal').textContent = m.kcal || '';
 }
-
 /* ===== 날씨: 한 줄(아이콘·온도·지역) + 최저·최고, 펼치면 일출·일몰·풍속 ===== */
 function renderWeather(w) {
-  if (!w || !w.ok) {
-    document.getElementById('wxName').textContent = w ? w.name : '--';
-    return;
-  }
-  document.getElementById('wxTemp').innerHTML = w.temp + '<small>°C</small>';
-  document.getElementById('wxName').textContent = w.name;
-  document.getElementById('tmin').textContent = w.tmin;
-  document.getElementById('tmax').textContent = w.tmax;
-  document.getElementById('wind').textContent = w.wind;
-  document.getElementById('sunrise').textContent = w.sunrise;
-  document.getElementById('sunset').textContent = w.sunset;
-  document.getElementById('wxIcon').innerHTML = iconFor(w.code);
+  var ok = !!(w && w.ok);
+  var value = function(v) { return v === undefined || v === null || v === '' ? '--' : String(v); };
+  $('wxName').textContent = (w && w.name) ? String(w.name) : '--';
+  var temp = $('wxTemp');
+  temp.textContent = ok ? value(w.temp) : '--';
+  var unit = document.createElement('small'); unit.textContent = '°C'; temp.appendChild(unit);
+  ['tmin', 'tmax', 'wind', 'sunrise', 'sunset'].forEach(function(id) {
+    setText(id, ok ? value(w[id]) : (id === 'sunrise' || id === 'sunset' ? '--:--' : '--'));
+  });
+  $('wxIcon').innerHTML = ok ? iconFor(Number(w.code)) : '';
 }
-
 function iconFor(c) {
   var S = 'viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"';
   if (c === 0 || c === 1)
@@ -418,33 +445,33 @@ function iconFor(c) {
     return '<svg ' + S + '><path d="M17 13H8a4 4 0 0 1 0-8 5 5 0 0 1 9.5 1.5A3.3 3.3 0 0 1 17 13z"/><path d="M13 15l-3 4h4l-3 4"/></svg>';
   return '<svg ' + S + '><path d="M17 18H8a4 4 0 0 1 0-8 5 5 0 0 1 9.5 1.5A3.3 3.3 0 0 1 17 18z"/></svg>';
 }
-
 /* ===== 달력: 날짜 아래 일정 제목 한 줄(항상), 누르거나 Enter로 그날 일정 전체 ===== */
 function moveMonth(delta) {
+  if (viewY === null || viewM === null) { var n = new Date(); viewY = n.getFullYear(); viewM = n.getMonth() + 1; }
   lastNav = Date.now();
   viewM += delta;
   if (viewM < 1)  { viewM = 12; viewY--; }
   if (viewM > 12) { viewM = 1;  viewY++; }
   drawCalendar();
 }
-
 function drawCalendar() {
   if (!DATA) return;
-  document.getElementById('monthTitle').textContent = viewY + '년 ' + viewM + '월';
-
+  var today = dateKey(new Date());
+  var signature = JSON.stringify([viewY, viewM, today, DATA.eventMap]);
+  if (signature === lastCalendarKey) return;
+  lastCalendarKey = signature;
+  $('monthTitle').textContent = viewY + '년 ' + viewM + '월';
   var first = new Date(viewY, viewM - 1, 1).getDay();
   var last  = new Date(viewY, viewM, 0).getDate();
   var prevLast = new Date(viewY, viewM - 1, 0).getDate();
-  var grid = document.getElementById('grid');
-  grid.textContent = '';
-
+  var grid = $('grid');
+  var fragment = document.createDocumentFragment();
   for (var h = 0; h < 7; h++) {
     var dow = document.createElement('div');
     dow.className = 'dow' + (h === 0 ? ' sun' : (h === 6 ? ' sat' : ''));
     dow.textContent = DOW[h];
-    grid.appendChild(dow);
+    fragment.appendChild(dow);
   }
-
   var day = 1, nextDay = 1;
   for (var w = 0; w < 6; w++) {
     for (var c = 0; c < 7; c++) {
@@ -456,7 +483,7 @@ function drawCalendar() {
       else {
         num = day;
         ds = viewY + '-' + p(viewM) + '-' + p(day);
-        if (ds === DATA.today) cls += ' today';
+        if (ds === today) cls += ' today';
         day++;
       }
       var dn = document.createElement('span'); dn.className = 'dnum'; dn.textContent = num; cell.appendChild(dn);
@@ -481,105 +508,285 @@ function drawCalendar() {
         })(cell, ds, items);
       }
       cell.className = cls;
-      grid.appendChild(cell);
+      fragment.appendChild(cell);
     }
   }
+  grid.replaceChildren(fragment);
 }
 
-/* ===== 3행: [큐알림][흐르는 본문][다음 일정]. 앱스 스크립트가 q:{at, items:[{k,t,until}]}를 실어 준다 =====
-   자막은 자료가 실제로 바뀔 때만 다시 만든다(시계의 매초 갱신과 무관). 이동 시간은 글 길이로 계산(TICKER_SPEED px/초). */
+/* ===== 큐알림: 내용 갱신과 재생을 분리한 무한 순환 =====
+   - 한 묶음의 실제 소수점 너비만큼 이동하고, 화면을 채울 만큼만 복제한다.
+   - Web Animations API가 재생을 담당하므로 매 프레임 JS/DOM 작업을 하지 않는다.
+   - 동일 데이터는 다시 만들지 않는다. 크기/폰트/내용 변경은 진행 비율을 이어간다.
+   - scroll 모드는 기기의 동작 줄이기와 무관하게 흐른다. auto 모드는 이를 존중한다.
+*/
 var lastQ = null, lastKey = null, tickerItems = [];
+var tickerAnimation = null, tickerDuration = 0, tickerSavedPhase = 0;
+var tickerLayoutFrame = 0, tickerDirty = true, tickerLastWidth = -1;
+var tickerUnitWidth = 0, tickerLastSpeed = 0, tickerMode = 'empty';
+var tickerUserPaused = false, tickerRotateTimer = null, tickerExpiryTimer = null, tickerIndex = 0;
+var tickerMedia = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : null;
+
+function expiryOf(value) {
+  if (value === null || value === undefined || value === '') return Infinity;
+  var t = typeof value === 'number' ? value : Date.parse(String(value));
+  // 기존과 동일하게 읽을 수 없는 만료 시각은 임의로 삭제하지 않는다.
+  return Number.isFinite(t) ? t : Infinity;
+}
 function liveItems(q) {
-  var now = Date.now();
-  return (q && q.items) ? q.items.filter(function(x){ return x && x.t && !(x.until && Date.parse(x.until) < now); }) : [];
+  var now = Date.now(), rows = q && Array.isArray(q.items) ? q.items : [];
+  return rows.filter(function(x) {
+    return x && x.t !== undefined && x.t !== null && String(x.t).trim() !== '' && expiryOf(x.until) > now;
+  }).map(function(x) { return { k: x.k === undefined || x.k === null ? '' : String(x.k), t: String(x.t) }; });
 }
-function renderTicker(q) {
-  lastQ = q;
-  var items = liveItems(q);
-  var day = dayItems();   // 오늘 일정도 비교에 넣는다 — 큐 알림이 그대로여도 시간표·학사일정·날짜가 바뀌면 다시 그린다 (강희 지적)
-  var sig = day.concat(items).map(function(x){ return (x.k || '') + '|' + x.t; }).join('\n');
-  if (sig === lastKey) return;
-  lastKey = sig;
-  var dbox = document.getElementById('detail');
-  if (dbox.classList.contains('on') && (dbox.dataset.kind === 'ticker' || dbox.dataset.kind === 'next')) hideDetail();   // 알림이 바뀌면 알림·다음 일정 상세만 닫는다
-
-  /* 2026-09-29 캡틴 "하루 일정이 오른쪽에서 왼쪽으로 흘러가는 자막처럼": 오늘 수업·학사일정을 앞에 두고 큐 알림(다음 일정 포함)을 뒤에 이어 한 줄로 흘린다.
-     오른쪽 「다음 일정」 고정 칸은 흐름 속으로 들어갔다. */
-  var rest = day.concat(items);
-  tickerItems = rest;
-  document.getElementById('tkRight').classList.add('hide');
-
-  var track = document.getElementById('tkTrack');
-  track.style.animation = '';
-  track.textContent = '';
-  if (!rest.length) {
-    track.className = 'still muted'; track.textContent = '오늘 일정 없음';
-    document.getElementById('tkRun').title = '';
-    return;
+function scheduleTickerExpiry(q) {
+  clearTimeout(tickerExpiryTimer);
+  tickerExpiryTimer = null;
+  var now = Date.now(), next = Infinity;
+  if (q && Array.isArray(q.items)) q.items.forEach(function(x) {
+    if (!x) return;
+    var t = expiryOf(x.until);
+    if (t > now && t < next) next = t;
+  });
+  if (Number.isFinite(next)) {
+    tickerExpiryTimer = setTimeout(function() { renderTicker(lastQ); }, Math.min(2147483647, Math.max(1, next - now + 1)));
   }
-  document.getElementById('tkRun').title = rest.map(function(x) { return (x.k ? x.k + ' ' : '') + x.t; }).join('\n');
-  layoutTicker();
 }
-/* 오늘의 흐름: 날짜 → 수업(교시·시각·반) → 학사일정. 자료가 없으면 빈 배열 */
 function dayItems() {
-  var out = [];
-  if (!DATA || !DATA.periods) return out;
-  var n = new Date(), rows = DATA.timetable[n.getDay()] || [];
-  var cls = [];
-  for (var i = 0; i < DATA.periods.length; i++) { if (rows[i]) cls.push(DATA.periods[i].no + '교시 ' + DATA.periods[i].start + ' ' + rows[i] + '반'); }
-  out.push({ k: (n.getMonth() + 1) + '월 ' + n.getDate() + '일 ' + '일월화수목금토'.charAt(n.getDay()) + '요일', t: cls.length ? cls.join(' · ') : '오늘 수업 없음' });
-  /* 행사도 시계와 같은 날짜(기기의 오늘)로 찾는다 — 자정 뒤 새 응답이 오기 전에는 DATA.today가 어제라 어제 행사를 오늘 것으로 흘리던 것 (강희 지적) */
-  var ds = n.getFullYear() + '-' + ('0' + (n.getMonth() + 1)).slice(-2) + '-' + ('0' + n.getDate()).slice(-2);
-  (DATA.eventMap && DATA.eventMap[ds] || []).forEach(function(e) { if (e && e.text) out.push({ k: e.type || '일정', t: e.text }); });
+  if (!DATA) return [];
+  var n = new Date(), list = todayList(n);
+  var out = [{
+    k: (n.getMonth() + 1) + '월 ' + n.getDate() + '일 ' + DOW[n.getDay()] + '요일',
+    t: list.length ? list.map(function(x) { return x.no + '교시 ' + x.stext + ' ' + x.cls + '반'; }).join(' · ') : '오늘 수업 없음'
+  }];
+  (DATA.eventMap[dateKey(n)] || []).forEach(function(e) {
+    if (e && e.text) out.push({ k: e.type || '일정', t: e.text });
+  });
   return out;
 }
-/* 항목들을 한 묶음으로 그린다(구분점 포함). 끊김 없는 순환을 위해 같은 묶음을 여러 번 이어 붙인다 */
-function fillTrack(track, items, copies) {
-  track.textContent = '';
-  for (var c = 0; c < copies; c++) {
-    var blk = document.createElement('span'); blk.className = 'blk';
-    items.forEach(function(x, i) {
-      if (i) { var sp = document.createElement('span'); sp.className = 'sep'; sp.textContent = '·'; blk.appendChild(sp); }
-      if (x.k) { var b = document.createElement('b'); b.textContent = x.k + ' '; blk.appendChild(b); }
-      blk.appendChild(document.createTextNode(String(x.t)));
-    });
-    var tail = document.createElement('span'); tail.className = 'sep'; tail.textContent = '·'; blk.appendChild(tail);
-    track.appendChild(blk);
+function renderTicker(q) {
+  lastQ = q || null;
+  var items = dayItems().concat(liveItems(lastQ));
+  var sig = JSON.stringify(items.map(function(x) { return [x.k, x.t]; }));
+  scheduleTickerExpiry(lastQ);
+  if (sig === lastKey) { syncTickerPlayback(); return; }
+  lastKey = sig;
+  tickerItems = items;
+  tickerIndex = Math.min(tickerIndex, Math.max(0, items.length - 1));
+  var run = $('tkRun');
+  run.title = items.map(function(x) { return (x.k ? x.k + ' ' : '') + x.t; }).join('\n');
+  run.setAttribute('aria-label', '알림 전체 보기 · ' + items.length + '건');
+  // 열려 있는 큐알림 상세는 닫아 버리지 않고, 변경된 내용만 다시 채운다.
+  if ($('detail').classList.contains('on') && $('detail').dataset.kind === 'ticker') {
+    showDetail('오늘의 흐름' + (lastQ && lastQ.at ? ' · 큐알림 ' + lastQ.at : ''), items, 'ticker');
+  }
+  scheduleTickerLayout(true);
+}
+function effectiveTickerMode() {
+  var mode = TICKER_MODE;
+  if (mode === 'auto') mode = tickerMedia && tickerMedia.matches ? 'rotate' : 'scroll';
+  if (mode !== 'scroll' && mode !== 'rotate' && mode !== 'static') mode = 'scroll';
+  // 구형 임베디드 브라우저에서 애니메이션 API가 없으면 항목 교체로 대체한다.
+  if (mode === 'scroll' && typeof $('tkTrack').animate !== 'function') mode = 'rotate';
+  return mode;
+}
+function tickerPhase() {
+  if (tickerAnimation && tickerDuration > 0 && tickerAnimation.currentTime !== null) {
+    var t = Number(tickerAnimation.currentTime);
+    if (Number.isFinite(t)) return ((t % tickerDuration) + tickerDuration) % tickerDuration / tickerDuration;
+  }
+  return tickerSavedPhase;
+}
+function cancelTickerAnimation() {
+  tickerSavedPhase = tickerPhase();
+  if (tickerAnimation) { tickerAnimation.cancel(); tickerAnimation = null; }
+  clearTimeout(tickerRotateTimer); tickerRotateTimer = null;
+}
+function makeTickerGroup(items) {
+  var group = document.createElement('span'); group.className = 'tkGroup';
+  items.forEach(function(x, i) {
+    if (i) addTickerSeparator(group);
+    if (x.k) { var b = document.createElement('b'); b.textContent = x.k; group.appendChild(b); group.appendChild(document.createTextNode('\u00a0')); }
+    group.appendChild(document.createTextNode(x.t));
+  });
+  addTickerSeparator(group); // 끝과 처음 사이에도 동일한 여백을 둔다.
+  return group;
+}
+function addTickerSeparator(parent) {
+  var sep = document.createElement('span'); sep.className = 'sep'; sep.textContent = '·'; parent.appendChild(sep);
+}
+function showTickerStatic() {
+  var track = $('tkTrack');
+  track.className = 'still';
+  if (tickerMode === 'rotate') {
+    var x = tickerItems[tickerIndex];
+    track.replaceChildren();
+    if (x.k) { var b = document.createElement('b'); b.textContent = x.k; track.appendChild(b); track.appendChild(document.createTextNode('\u00a0')); }
+    track.appendChild(document.createTextNode(x.t));
+  } else {
+    track.replaceChildren(makeTickerGroup(tickerItems));
   }
 }
-/* 표시창 너비와 글 너비로 이동 거리·시간을 정한다. 창 크기가 바뀌면 다시 계산 */
+function scheduleTickerLayout(dirty) {
+  if (dirty) tickerDirty = true;
+  if (tickerLayoutFrame) return;
+  tickerLayoutFrame = requestAnimationFrame(function() {
+    tickerLayoutFrame = 0;
+    layoutTicker();
+  });
+}
 function layoutTicker() {
-  var track = document.getElementById('tkTrack'), run = document.getElementById('tkRun');
-  if (!tickerItems.length) return;
-  var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  if (reduce) { fillTrack(track, tickerItems, 1); track.className = 'still'; return; }   // 동작 줄이기: 멈춘 한 줄(말줄임) + 상세 보기
-  track.className = '';
-  /* 끊김 없는 순환: 한 묶음의 너비(B)가 표시창(W)보다 짧으면 묶음을 여러 번 이어 최소 W를 넘기고, 그 덩어리를 한 번 더 붙인 뒤
-     덩어리 하나 너비만큼 왼쪽으로 옮기는 애니메이션을 무한 반복한다(끝과 시작이 같은 그림이라 이어진 것처럼 보인다). */
-  fillTrack(track, tickerItems, 1);
-  var W = run.clientWidth, B = track.scrollWidth || 1;
-  var reps = Math.max(1, Math.ceil(W / B));
-  fillTrack(track, tickerItems, reps * 2);
-  var half = track.scrollWidth / 2;
-  track.style.setProperty('--from', '0px');
-  track.style.setProperty('--to', (-half) + 'px');
-  track.style.setProperty('--dur', (half / TICKER_SPEED).toFixed(2) + 's');
-  track.className = 'roll';
+  var track = $('tkTrack'), run = $('tkRun');
+  if (!tickerItems.length) {
+    cancelTickerAnimation(); tickerMode = 'empty'; tickerUnitWidth = 0;
+    track.className = 'still muted'; track.textContent = DATA ? '오늘 일정 없음' : '알림을 불러오는 중…';
+    tickerDirty = false;
+    syncTickerPlayback();
+    return;
+  }
+  var zoom = STAGE_ZOOM || 1;
+  // 화면상의 px를 stage 내부 CSS px로 환산한다. 두 너비의 좌표계를 통일한다.
+  var width = run.getBoundingClientRect().width / zoom;
+  if (!(width > 0) || document.hidden) {
+    tickerDirty = true;
+    if (tickerAnimation) tickerAnimation.pause();
+    clearTimeout(tickerRotateTimer); tickerRotateTimer = null;
+    return; // 숨겨진 화면의 너비 0을 1로 바꾸어 잘못 계산하지 않는다.
+  }
+  var mode = effectiveTickerMode();
+  var speed = Number(TICKER_SPEED);
+  if (!Number.isFinite(speed) || speed <= 0) speed = 40;
+  if (!tickerDirty && Math.abs(width - tickerLastWidth) < 0.05 && mode === tickerMode && speed === tickerLastSpeed) {
+    syncTickerPlayback(); return;
+  }
+  var phase = tickerPhase();
+  cancelTickerAnimation();
+  tickerMode = mode; tickerLastWidth = width; tickerLastSpeed = speed; tickerDirty = false;
+  if (mode !== 'scroll') {
+    showTickerStatic(); syncTickerPlayback(); return;
+  }
+  track.className = 'moving';
+  var group = makeTickerGroup(tickerItems);
+  track.replaceChildren(group);
+  var unit = group.getBoundingClientRect().width / zoom;
+  if (!Number.isFinite(unit) || unit <= 0) { tickerDirty = true; return; }
+  tickerUnitWidth = unit;
+  // 이동 중에도 「표시 폭 + 한 묶음」을 확보한다. 짧은 문구도 빈 구간 없이 순환한다.
+  var copies = Math.max(2, Math.ceil(width / unit) + 1);
+  var fragment = document.createDocumentFragment();
+  for (var i = 1; i < copies; i++) {
+    var clone = group.cloneNode(true); clone.setAttribute('aria-hidden', 'true'); fragment.appendChild(clone);
+  }
+  track.appendChild(fragment);
+  tickerDuration = unit / speed * 1000;
+  tickerAnimation = track.animate([
+    { transform: 'translate3d(0,0,0)' },
+    { transform: 'translate3d(' + (-unit) + 'px,0,0)' }
+  ], { duration: tickerDuration, iterations: Infinity, easing: 'linear' });
+  tickerAnimation.currentTime = phase * tickerDuration;
+  tickerSavedPhase = phase;
+  syncTickerPlayback();
 }
-var resizeTimer = null;
-window.addEventListener('resize', function() { clearTimeout(resizeTimer); resizeTimer = setTimeout(function() { fitMode(); layoutTicker(); }, 150); });
-if (window.matchMedia) {   // 운영체제의 「동작 줄이기」를 켜고 끄면 그 자리에서 자막을 멈추거나 다시 흘린다 (강희 지적)
-  var mq = window.matchMedia('(prefers-reduced-motion: reduce)');
-  if (mq.addEventListener) mq.addEventListener('change', layoutTicker); else if (mq.addListener) mq.addListener(layoutTicker);
+function tickerShouldPause() {
+  var detail = $('detail');
+  return tickerUserPaused || document.hidden ||
+    (TICKER_PAUSE_ON_DETAIL && detail.classList.contains('on') && detail.dataset.kind === 'ticker');
 }
-setInterval(function(){ if (DATA) renderTicker(lastQ); }, 60000);   // 분마다 지난 줄을 걸러내고 날짜가 바뀌면 오늘 일정도 새로(큐 알림이 없어도 — 강희 지적). 내용이 같으면 자막은 그대로 흐른다
+function syncTickerPlayback() {
+  var pause = tickerShouldPause();
+  $('ticker').dataset.mode = tickerMode;
+  $('ticker').classList.toggle('paused', pause);
+  if (tickerAnimation) {
+    if (pause) { if (tickerAnimation.playState !== 'paused') tickerAnimation.pause(); }
+    else if (tickerAnimation.playState !== 'running') tickerAnimation.play();
+  }
+  var button = $('tkToggle');
+  button.disabled = !tickerItems.length || tickerMode === 'static' || tickerMode === 'empty' || (tickerMode === 'rotate' && tickerItems.length < 2);
+  button.textContent = tickerUserPaused ? '▶' : 'Ⅱ';
+  button.setAttribute('aria-pressed', String(tickerUserPaused));
+  var label = tickerUserPaused ? '큐알림 다시 재생' : '큐알림 일시정지';
+  button.setAttribute('aria-label', label); button.title = label;
+  if (pause || tickerMode !== 'rotate' || tickerItems.length < 2) {
+    clearTimeout(tickerRotateTimer); tickerRotateTimer = null;
+  } else if (!tickerRotateTimer) {
+    var seconds = Number(TICKER_ROTATE_SECONDS);
+    if (!Number.isFinite(seconds) || seconds < 1) seconds = 6;
+    tickerRotateTimer = setTimeout(function() {
+      tickerRotateTimer = null;
+      if (tickerShouldPause() || tickerMode !== 'rotate' || !tickerItems.length) return;
+      tickerIndex = (tickerIndex + 1) % tickerItems.length;
+      showTickerStatic(); syncTickerPlayback();
+    }, seconds * 1000);
+  }
+}
+function initTicker() {
+  $('tkToggle').addEventListener('click', function(e) {
+    e.stopPropagation(); tickerUserPaused = !tickerUserPaused; syncTickerPlayback();
+  });
+  var resizeFrame = 0;
+  window.addEventListener('resize', function() {
+    if (resizeFrame) return;
+    resizeFrame = requestAnimationFrame(function() { resizeFrame = 0; fitMode(); scheduleTickerLayout(true); });
+  });
+  if (typeof ResizeObserver === 'function') {
+    var lastObservedWidth = -1;
+    var observer = new ResizeObserver(function(entries) {
+      var w = entries[0].contentRect.width;
+      if (Math.abs(w - lastObservedWidth) > 0.05) { lastObservedWidth = w; scheduleTickerLayout(true); }
+    });
+    observer.observe($('tkRun'));
+  }
+  if (tickerMedia) {
+    var onMotionChange = function() { if (TICKER_MODE === 'auto') scheduleTickerLayout(true); };
+    if (tickerMedia.addEventListener) tickerMedia.addEventListener('change', onMotionChange);
+    else if (tickerMedia.addListener) tickerMedia.addListener(onMotionChange);
+  }
+  if (document.fonts) {
+    document.fonts.ready.then(function() { scheduleTickerLayout(true); });
+    if (document.fonts.addEventListener) document.fonts.addEventListener('loadingdone', function() { scheduleTickerLayout(true); });
+  }
+  document.addEventListener('visibilitychange', function() {
+    if (!document.hidden) {
+      fitMode(); tick();
+      if (DATA) renderTicker(lastQ);
+      scheduleTickerLayout(true);
+      if (Date.now() - lastLoadStarted >= LOAD_INTERVAL_MS) load();
+    }
+    syncTickerPlayback();
+  });
+  window.addEventListener('pageshow', function(e) {
+    if (e.persisted) { fitMode(); tick(); scheduleTickerLayout(true); load(); }
+  });
+  window.addEventListener('online', function() { load(); });
+}
+// 개발자 도구에서 QTicker.status()로 실제 재생 상태를 확인할 수 있다.
+window.QTicker = {
+  pause: function() { tickerUserPaused = true; syncTickerPlayback(); },
+  resume: function() { tickerUserPaused = false; scheduleTickerLayout(); syncTickerPlayback(); },
+  refresh: function() { renderTicker(lastQ); scheduleTickerLayout(true); },
+  setSpeed: function(pxPerSecond) {
+    if (!Number.isFinite(pxPerSecond) || pxPerSecond <= 0) throw new RangeError('속도는 0보다 큰 숫자여야 합니다.');
+    TICKER_SPEED = pxPerSecond; scheduleTickerLayout(true);
+  },
+  setMode: function(mode) {
+    if (['scroll', 'auto', 'rotate', 'static'].indexOf(mode) < 0) throw new RangeError('scroll / auto / rotate / static 중 하나를 사용하세요.');
+    TICKER_MODE = mode; scheduleTickerLayout(true);
+  },
+  status: function() {
+    return { mode: tickerMode, requestedMode: TICKER_MODE, reducedMotion: !!(tickerMedia && tickerMedia.matches), paused: tickerShouldPause(),
+      userPaused: tickerUserPaused, count: tickerItems.length, copies: $('tkTrack').children.length,
+      unitWidth: tickerUnitWidth, speed: tickerLastSpeed, durationSeconds: tickerDuration / 1000,
+      phase: tickerPhase(), playState: tickerAnimation ? tickerAnimation.playState : 'none' };
+  }
+};
 
 /* ===== 상세 보기 ===== */
 function showDetail(title, rows, kind) {
-  var box = document.getElementById('detail');
+  rows = Array.isArray(rows) ? rows : [];
+  var box = $('detail');
   box.dataset.kind = kind || '';
-  document.getElementById('detailTitle').textContent = title;
-  var ul = document.getElementById('detailList'); ul.textContent = '';
+  $('detailTitle').textContent = title;
+  var ul = $('detailList'); ul.textContent = '';
   if (!rows || !rows.length) { var li0 = document.createElement('li'); li0.textContent = '내용 없음'; ul.appendChild(li0); }
   rows.forEach(function(r) {
     var li = document.createElement('li'); if (r.main) li.className = 'main';
@@ -588,19 +795,19 @@ function showDetail(title, rows, kind) {
     ul.appendChild(li);
   });
   box.classList.add('on');
-  document.getElementById('ticker').classList.add('paused');   // 상세를 읽는 동안 자막은 멈춘다
+  $('tkRun').setAttribute('aria-expanded', kind === 'ticker' ? 'true' : 'false');
+  syncTickerPlayback();
 }
-function hideDetail() { document.getElementById('detail').classList.remove('on'); document.getElementById('ticker').classList.remove('paused'); }
-document.addEventListener('click', function(e) { if (document.getElementById('detail').classList.contains('on') && !e.target.closest('#detail')) hideDetail(); });
-document.addEventListener('keydown', function(e) { if (e.key === 'Escape') { hideDetail(); document.getElementById('wx').open = false; } });
-
+function hideDetail() { $('detail').classList.remove('on'); $('tkRun').setAttribute('aria-expanded', 'false'); syncTickerPlayback(); }
+document.addEventListener('click', function(e) { if ($('detail').classList.contains('on') && !e.target.closest('#detail')) hideDetail(); });
+document.addEventListener('keydown', function(e) { if (e.key === 'Escape') { closeAlert(); hideDetail(); $('wx').open = false; } });
 function bindDetail(id, fn) {
-  var el = document.getElementById(id);
-  el.onclick = function(e) { e.stopPropagation(); if (document.getElementById('detail').classList.contains('on')) { hideDetail(); return; } fn(); };
+  var el = $(id);
+  el.onclick = function(e) { e.stopPropagation(); if ($('detail').classList.contains('on')) { hideDetail(); return; } fn(); };
   el.onkeydown = function(e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); el.onclick(e); } };
 }
 bindDetail('mealRow', function() {
-  var rows = (MEAL && MEAL.hasMeal) ? MEAL.dishes.map(function(x) { return { t: x }; }) : [{ t: document.getElementById('dishes').textContent }];
+  var rows = (MEAL && MEAL.hasMeal) ? MEAL.dishes.map(function(x) { return { t: x }; }) : [{ t: $('dishes').textContent }];
   if (MEAL && MEAL.kcal) rows.push({ k: '열량', t: MEAL.kcal });
   showDetail(((MEAL && MEAL.label) || '급식') + (MEAL && MEAL.date ? ' · ' + MEAL.date : ''), rows, 'meal');
 });
@@ -608,16 +815,12 @@ bindDetail('tkRun', function() {   // 흐르는 글 전체(오늘 일정 + 큐 �
   var now = dayItems().concat(liveItems(lastQ));   // 누르는 순간 기준으로 다시 계산(지난 알림은 빼고) — 강희 지적
   showDetail('오늘의 흐름' + (lastQ && lastQ.at ? ' · 큐알림 ' + lastQ.at : ''), now.map(function(x) { return { k: x.k, t: x.t }; }), 'ticker');
 });
-bindDetail('tkRight', function() {
-  showDetail('다음 일정', [{ k: document.getElementById('nxTime').textContent, t: document.getElementById('nxTitle').textContent }], 'next');
-});
-
 /* 기준 640×264보다 큰 창(예: Xeneon Edge 2560×720)은 같은 배치를 비율대로 키운다. 작은 창은 그대로 둔다. */
 var STAGE_ZOOM = 1;
 function fitZoom() {
   var k = Math.min(window.innerWidth / 640, window.innerHeight / 264);
   k = k > 1 ? Math.floor(k * 100) / 100 : 1;
-  var st = document.getElementById('stage');
+  var st = $('stage');
   STAGE_ZOOM = k;
   st.style.zoom = k > 1 ? String(k) : '';
   /* 확대한 무대가 창을 꼭 채우게 무대 크기는 창/배율. 알림(#alert)은 무대 밖이라 배율과 무관하게 화면에 꼭 맞는다 */
@@ -633,11 +836,10 @@ function fitMode() {
   document.body.classList.toggle('tall2', h >= 400);
 }
 fitMode();
-
+initTicker();
 tick();
 setInterval(tick, 1000);
 load();
-setInterval(load, 60000);
 </script>
 </body>
 </html>
