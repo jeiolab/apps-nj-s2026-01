@@ -118,7 +118,8 @@
   #tkTrack.roll { animation:roll var(--dur, 20s) linear infinite; }
   @keyframes roll { from { transform:translateX(var(--from, 0px)); } to { transform:translateX(var(--to, -100%)); } }
   #ticker.paused #tkTrack { animation-play-state:paused; }   /* 상세를 읽는 동안만. 올림(:hover)·초점 멈춤은 뺐다 — 터치 화면에서 누른 자리가 올림으로 남아 자막이 멈추던 원인(2026-09-29) */
-  #tkTrack.still { position:static; overflow:hidden; text-overflow:ellipsis; display:block; line-height:14px; }   /* 동작 줄이기 또는 알림 없음: 멈춘 한 줄 */
+  #tkTrack.still { position:static; overflow:hidden; text-overflow:ellipsis; display:block; line-height:14px; }
+  #tkTrack .blk { display:inline-block; white-space:nowrap; }   /* inline-flex면 굵은 제목 뒤 공백이 사라져 「19:00독재스터디」처럼 붙는다 */   /* 동작 줄이기 또는 알림 없음: 멈춘 한 줄 */
   #tkTrack.muted { color:#6e7681; }
   @media (prefers-reduced-motion: reduce) { #tkTrack.roll { animation:none; } }
   #tkRight { min-width:0; width:100%; display:flex; align-items:center; gap:5px; cursor:pointer; overflow:hidden; }
@@ -495,55 +496,74 @@ function liveItems(q) {
 function renderTicker(q) {
   lastQ = q;
   var items = liveItems(q);
-  var sig = items.map(function(x){ return (x.k || '') + '|' + x.t; }).join('\n');
+  var day = dayItems();   // 오늘 일정도 비교에 넣는다 — 큐 알림이 그대로여도 시간표·학사일정·날짜가 바뀌면 다시 그린다 (강희 지적)
+  var sig = day.concat(items).map(function(x){ return (x.k || '') + '|' + x.t; }).join('\n');
   if (sig === lastKey) return;
   lastKey = sig;
   var dbox = document.getElementById('detail');
   if (dbox.classList.contains('on') && (dbox.dataset.kind === 'ticker' || dbox.dataset.kind === 'next')) hideDetail();   // 알림이 바뀌면 알림·다음 일정 상세만 닫는다
 
-  var next = null, rest = [];
-  items.forEach(function(x) {
-    var m = /^다음\s+(\d\d:\d\d)$/.exec(x.k || '');
-    if (m && !next) next = { time: m[1], t: x.t }; else rest.push(x);
-  });
+  /* 2026-09-29 캡틴 "하루 일정이 오른쪽에서 왼쪽으로 흘러가는 자막처럼": 오늘 수업·학사일정을 앞에 두고 큐 알림(다음 일정 포함)을 뒤에 이어 한 줄로 흘린다.
+     오른쪽 「다음 일정」 고정 칸은 흐름 속으로 들어갔다. */
+  var rest = day.concat(items);
   tickerItems = rest;
-
-  var right = document.getElementById('tkRight');
-  if (next) {
-    right.classList.remove('hide');
-    document.getElementById('nxTime').textContent = next.time;
-    document.getElementById('nxTitle').textContent = next.t;
-    right.title = next.time + ' ' + next.t;
-  } else { right.classList.add('hide'); right.title = ''; }
+  document.getElementById('tkRight').classList.add('hide');
 
   var track = document.getElementById('tkTrack');
   track.style.animation = '';
   track.textContent = '';
   if (!rest.length) {
-    track.className = 'still muted'; track.textContent = next ? '' : '알림 없음';
+    track.className = 'still muted'; track.textContent = '오늘 일정 없음';
     document.getElementById('tkRun').title = '';
     return;
   }
-  rest.forEach(function(x, i) {
-    if (i) { var sp = document.createElement('span'); sp.className = 'sep'; sp.textContent = '·'; track.appendChild(sp); }
-    if (x.k) { var b = document.createElement('b'); b.textContent = x.k + ' '; track.appendChild(b); }
-    track.appendChild(document.createTextNode(String(x.t)));
-  });
   document.getElementById('tkRun').title = rest.map(function(x) { return (x.k ? x.k + ' ' : '') + x.t; }).join('\n');
   layoutTicker();
+}
+/* 오늘의 흐름: 날짜 → 수업(교시·시각·반) → 학사일정. 자료가 없으면 빈 배열 */
+function dayItems() {
+  var out = [];
+  if (!DATA || !DATA.periods) return out;
+  var n = new Date(), rows = DATA.timetable[n.getDay()] || [];
+  var cls = [];
+  for (var i = 0; i < DATA.periods.length; i++) { if (rows[i]) cls.push(DATA.periods[i].no + '교시 ' + DATA.periods[i].start + ' ' + rows[i] + '반'); }
+  out.push({ k: (n.getMonth() + 1) + '월 ' + n.getDate() + '일 ' + '일월화수목금토'.charAt(n.getDay()) + '요일', t: cls.length ? cls.join(' · ') : '오늘 수업 없음' });
+  /* 행사도 시계와 같은 날짜(기기의 오늘)로 찾는다 — 자정 뒤 새 응답이 오기 전에는 DATA.today가 어제라 어제 행사를 오늘 것으로 흘리던 것 (강희 지적) */
+  var ds = n.getFullYear() + '-' + ('0' + (n.getMonth() + 1)).slice(-2) + '-' + ('0' + n.getDate()).slice(-2);
+  (DATA.eventMap && DATA.eventMap[ds] || []).forEach(function(e) { if (e && e.text) out.push({ k: e.type || '일정', t: e.text }); });
+  return out;
+}
+/* 항목들을 한 묶음으로 그린다(구분점 포함). 끊김 없는 순환을 위해 같은 묶음을 여러 번 이어 붙인다 */
+function fillTrack(track, items, copies) {
+  track.textContent = '';
+  for (var c = 0; c < copies; c++) {
+    var blk = document.createElement('span'); blk.className = 'blk';
+    items.forEach(function(x, i) {
+      if (i) { var sp = document.createElement('span'); sp.className = 'sep'; sp.textContent = '·'; blk.appendChild(sp); }
+      if (x.k) { var b = document.createElement('b'); b.textContent = x.k + ' '; blk.appendChild(b); }
+      blk.appendChild(document.createTextNode(String(x.t)));
+    });
+    var tail = document.createElement('span'); tail.className = 'sep'; tail.textContent = '·'; blk.appendChild(tail);
+    track.appendChild(blk);
+  }
 }
 /* 표시창 너비와 글 너비로 이동 거리·시간을 정한다. 창 크기가 바뀌면 다시 계산 */
 function layoutTicker() {
   var track = document.getElementById('tkTrack'), run = document.getElementById('tkRun');
   if (!tickerItems.length) return;
   var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  if (reduce) { track.className = 'still'; return; }   // 동작 줄이기: 멈춘 한 줄(말줄임) + 상세 보기
+  if (reduce) { fillTrack(track, tickerItems, 1); track.className = 'still'; return; }   // 동작 줄이기: 멈춘 한 줄(말줄임) + 상세 보기
   track.className = '';
-  var W = run.clientWidth, T = track.scrollWidth;
-  var dist = W + T;   // 오른쪽 끝에서 나타나 왼쪽 끝으로 완전히 사라진다
-  track.style.setProperty('--from', W + 'px');
-  track.style.setProperty('--to', (-T) + 'px');
-  track.style.setProperty('--dur', (dist / TICKER_SPEED).toFixed(2) + 's');
+  /* 끊김 없는 순환: 한 묶음의 너비(B)가 표시창(W)보다 짧으면 묶음을 여러 번 이어 최소 W를 넘기고, 그 덩어리를 한 번 더 붙인 뒤
+     덩어리 하나 너비만큼 왼쪽으로 옮기는 애니메이션을 무한 반복한다(끝과 시작이 같은 그림이라 이어진 것처럼 보인다). */
+  fillTrack(track, tickerItems, 1);
+  var W = run.clientWidth, B = track.scrollWidth || 1;
+  var reps = Math.max(1, Math.ceil(W / B));
+  fillTrack(track, tickerItems, reps * 2);
+  var half = track.scrollWidth / 2;
+  track.style.setProperty('--from', '0px');
+  track.style.setProperty('--to', (-half) + 'px');
+  track.style.setProperty('--dur', (half / TICKER_SPEED).toFixed(2) + 's');
   track.className = 'roll';
 }
 var resizeTimer = null;
@@ -552,7 +572,7 @@ if (window.matchMedia) {   // 운영체제의 「동작 줄이기」를 켜고 �
   var mq = window.matchMedia('(prefers-reduced-motion: reduce)');
   if (mq.addEventListener) mq.addEventListener('change', layoutTicker); else if (mq.addListener) mq.addListener(layoutTicker);
 }
-setInterval(function(){ if (lastQ) renderTicker(lastQ); }, 60000);   // 분마다 지난 줄을 걸러낸다(내용이 같으면 자막은 그대로 흐른다)
+setInterval(function(){ if (DATA) renderTicker(lastQ); }, 60000);   // 분마다 지난 줄을 걸러내고 날짜가 바뀌면 오늘 일정도 새로(큐 알림이 없어도 — 강희 지적). 내용이 같으면 자막은 그대로 흐른다
 
 /* ===== 상세 보기 ===== */
 function showDetail(title, rows, kind) {
@@ -584,9 +604,9 @@ bindDetail('mealRow', function() {
   if (MEAL && MEAL.kcal) rows.push({ k: '열량', t: MEAL.kcal });
   showDetail(((MEAL && MEAL.label) || '급식') + (MEAL && MEAL.date ? ' · ' + MEAL.date : ''), rows, 'meal');
 });
-bindDetail('tkRun', function() {
-  var items = liveItems(lastQ);
-  showDetail('큐알림' + (lastQ && lastQ.at ? ' · ' + lastQ.at : ''), items.map(function(x) { return { k: x.k, t: x.t }; }), 'ticker');
+bindDetail('tkRun', function() {   // 흐르는 글 전체(오늘 일정 + 큐 알림)를 멈춘 목록으로
+  var now = dayItems().concat(liveItems(lastQ));   // 누르는 순간 기준으로 다시 계산(지난 알림은 빼고) — 강희 지적
+  showDetail('오늘의 흐름' + (lastQ && lastQ.at ? ' · 큐알림 ' + lastQ.at : ''), now.map(function(x) { return { k: x.k, t: x.t }; }), 'ticker');
 });
 bindDetail('tkRight', function() {
   showDetail('다음 일정', [{ k: document.getElementById('nxTime').textContent, t: document.getElementById('nxTitle').textContent }], 'next');
